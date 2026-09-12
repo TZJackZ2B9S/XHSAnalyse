@@ -119,8 +119,9 @@ async def _handle_urls(
 
 
 @sv.on_command(
-    "",
+    "xhs",
     block=True,
+    prefix=False,
     to_ai="""解析小红书分享链接或笔记链接，下载无水印图片、视频和 Live 图。
 当用户发送小红书链接并要求解析、下载或去水印时调用。
 
