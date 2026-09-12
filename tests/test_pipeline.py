@@ -57,3 +57,40 @@ def test_info_text_mentions_live_hdr_and_cookie(tmp_path: Path) -> None:
     assert "Live 图" in text
     assert "HDR" in text
     assert "Cookie" in text
+
+
+def test_info_text_mentions_actual_lower_than_target() -> None:
+    result = NoteResult(
+        note_id="0123456789abcdef01234567",
+        title="视频",
+        author="作者",
+        desc="",
+        publish_time="",
+        type="video",
+        video_quality="720p",
+        media=(MediaItem("https://video/main.mp4", is_video=True, quality="720p", width=1280, height=720),),
+        target_video_height=1080,
+    )
+    text = build_info_text(result, ())
+    assert "目标画质 1080p" in text
+    assert "源视频最高仅 720p" in text
+
+
+def test_forward_message_respects_file_video_send_type(tmp_path: Path) -> None:
+    video = tmp_path / "main.mp4"
+    video.write_bytes(b"video")
+    result = NoteResult(
+        note_id="0123456789abcdef01234567",
+        title="视频",
+        author="作者",
+        desc="",
+        publish_time="",
+        type="video",
+        video_quality="1080p",
+        media=(MediaItem("https://video/main.mp4", is_video=True, quality="1080p"),),
+    )
+    media = (PreparedMedia(video, result.media[0], 0, True),)
+    forward = build_forward_message(result, media, build_info_text(result, media), video_send_type="file")
+    assert forward.type == "node"
+    assert forward.data[1].type == "video"
+    assert str(forward.data[1].data).startswith("file://localhost/")

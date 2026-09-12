@@ -17,8 +17,7 @@ from xhs_core.media.pipeline import (
     build_info_text,
     build_forward_message,
 )
-
-from ..xhs_config.xhs_config import get_settings
+from xhs_core.config.xhs_config import XhsSettings, get_settings
 
 sv = SV("小红书解析")
 
@@ -48,11 +47,23 @@ async def _release_processing(user_id: str) -> None:
         _processing_users.discard(user_id)
 
 
-async def _parse_first_valid(client: httpx.AsyncClient, urls: tuple[str, ...], cookie: str) -> NoteResult:
+async def _parse_first_valid(
+    client: httpx.AsyncClient,
+    urls: tuple[str, ...],
+    settings: XhsSettings,
+) -> NoteResult:
     last_error: NoteParseError | None = None
     for url in _sorted_urls(urls):
         try:
-            return await parse_note(client, url, cookie)
+            return await parse_note(
+                client,
+                url,
+                settings.cookie,
+                prefer_original_image=settings.prefer_original_image,
+                max_video_height=settings.target_video_height,
+                prefer_hdr_video=settings.prefer_hdr_video,
+                fallback_without_cookie=settings.fallback_without_cookie,
+            )
         except NoteParseError as error:
             last_error = error
             if "无法提取笔记 ID" not in str(error) and "无法提取笔记数据" not in str(error):
@@ -78,14 +89,19 @@ async def _handle_urls(
         if notify:
             processing_ids = await bot.send("检测到小红书链接，正在解析...", wait_recall=True)
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), follow_redirects=True) as client:
-            result = await _parse_first_valid(client, urls, settings.cookie)
+            result = await _parse_first_valid(client, urls, settings)
             media = await prepare_media(client, result, settings)
         if not media:
             if notify:
                 await bot.send("未能下载任何媒体，请稍后重试")
             return False
         info_text = build_info_text(result, media)
-        forward = build_forward_message(result, media, info_text)
+        forward = build_forward_message(
+            result,
+            media,
+            info_text,
+            video_send_type=settings.video_send_type,
+        )
         try:
             await bot.send(forward)
         finally:
@@ -121,7 +137,7 @@ Args:
 async def xhs_parse(bot: Bot, ev: Event) -> None:
     urls = extract_urls(ev.text)
     if not urls:
-        await bot.send("请发送小红书分享链接或笔记链接")
+        await bot.send("请发送小红书分享链接或笔记链接，例如：xhs https://xhslink.com/xxxx")
         return
     await _handle_urls(bot, ev, urls, notify=True)
 

@@ -174,8 +174,21 @@ def _score(candidate: _Candidate, live: bool) -> tuple[int, int, int, int, int, 
     return direct, hdr, pixels, max(width, height, quality_height), bitrate, size, codec
 
 
-def select_stream(stream: object, *, video_only: bool = False) -> StreamChoice | None:
-    """选择可播放性优先、HDR 次优先、随后按分辨率和码率排序的媒体流。"""
+def _candidate_height(candidate: _Candidate) -> int:
+    stream = candidate.stream
+    width = number(stream, "width", "w")
+    height = number(stream, "height", "h")
+    return max(width, height) or quality_resolution(stream) or number(stream, "quality", "resolution")
+
+
+def select_stream(
+    stream: object,
+    *,
+    video_only: bool = False,
+    max_height: int = 0,
+    prefer_hdr: bool = True,
+) -> StreamChoice | None:
+    """选择画质上限内的最高流；源不足目标时自动取实际最高画质。"""
 
     candidates = _flatten(stream)
     if video_only:
@@ -188,6 +201,17 @@ def select_stream(stream: object, *, video_only: bool = False) -> StreamChoice |
     if video_only and not direct:
         return None
     pool = direct or candidates
+    if max_height > 0:
+        within_limit = [item for item in pool if 0 < _candidate_height(item) <= max_height]
+        unknown_height = [item for item in pool if _candidate_height(item) <= 0]
+        if within_limit:
+            pool = within_limit
+        elif unknown_height:
+            pool = unknown_height
+    if not prefer_hdr:
+        non_hdr = [item for item in pool if not is_hdr_stream(item.stream)]
+        if non_hdr:
+            pool = non_hdr
     best = max(pool, key=lambda item: _score(item, False))
     selected = best.stream
     width = number(selected, "width", "w")

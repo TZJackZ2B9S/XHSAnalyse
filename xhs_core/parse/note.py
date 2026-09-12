@@ -149,7 +149,14 @@ def _live_stream(image: dict[str, object]) -> object | None:
     return stream if stream is not None else field(image, "stream")
 
 
-def collect_media(note_id: str, note: dict[str, object]) -> NoteResult:
+def collect_media(
+    note_id: str,
+    note: dict[str, object],
+    *,
+    prefer_original_image: bool = True,
+    max_video_height: int = 0,
+    prefer_hdr_video: bool = True,
+) -> NoteResult:
     title = as_text(field(note, "displayTitle", "title")) or "未知标题"
     user = as_object(field(note, "user")) or {}
     author = as_text(field(user, "nickname", "nickName")) or "未知作者"
@@ -164,7 +171,7 @@ def collect_media(note_id: str, note: dict[str, object]) -> NoteResult:
         source_url = _image_url(image)
         if not source_url:
             continue
-        ci = build_ci_image_url(source_url)
+        ci = build_ci_image_url(source_url) if prefer_original_image else None
         url = ci[0] if ci else source_url
         live_choice = select_live_stream(_live_stream(image))
         if live_choice is not None and live_choice.url:
@@ -175,7 +182,11 @@ def collect_media(note_id: str, note: dict[str, object]) -> NoteResult:
     has_main_video = False
     video_quality: str | None = None
     if note_type == "video" and len(media) <= 1:
-        video = get_best_video_url(note)
+        video = get_best_video_url(
+            note,
+            max_height=max_video_height,
+            prefer_hdr=prefer_hdr_video,
+        )
         if video is not None:
             media.append(MediaItem(url=video.url, is_video=True, quality=video.quality, is_hdr=video.is_hdr))
             has_main_video = True
@@ -190,10 +201,20 @@ def collect_media(note_id: str, note: dict[str, object]) -> NoteResult:
         type="video" if has_main_video else "image",
         video_quality=video_quality,
         media=tuple(media),
+        target_video_height=max_video_height,
     )
 
 
-async def parse_note(client: httpx.AsyncClient, input_url: str, cookie: str = "") -> NoteResult:
+async def parse_note(
+    client: httpx.AsyncClient,
+    input_url: str,
+    cookie: str = "",
+    *,
+    prefer_original_image: bool = True,
+    max_video_height: int = 0,
+    prefer_hdr_video: bool = True,
+    fallback_without_cookie: bool = True,
+) -> NoteResult:
     """解析分享短链或笔记链接。"""
 
     resolved_url = await resolve_short_link(client, input_url) if is_short_link(input_url) else input_url
@@ -221,20 +242,38 @@ async def parse_note(client: httpx.AsyncClient, input_url: str, cookie: str = ""
             if not captcha and not blocked:
                 note = extract_note_from_html(document)
                 if note is not None:
-                    result = collect_media(note_id, note)
+                    result = collect_media(
+                        note_id,
+                        note,
+                        prefer_original_image=prefer_original_image,
+                        max_video_height=max_video_height,
+                        prefer_hdr_video=prefer_hdr_video,
+                    )
                     return replace(result, cookie_expired=cookie_expired)
             if captcha or blocked or not cookie:
                 break
             if attempt == 0:
                 await asyncio.sleep(1)
-        if response is not None and cookie and not _is_captcha(response.text) and not _is_blocked(response):
+        if (
+            fallback_without_cookie
+            and response is not None
+            and cookie
+            and not _is_captcha(response.text)
+            and not _is_blocked(response)
+        ):
             cookie_expired = True
             headers.pop("Cookie", None)
             response = await client.get(base_url, headers=headers)
             if not _is_captcha(response.text) and not _is_blocked(response):
                 note = extract_note_from_html(response.text)
                 if note is not None:
-                    result = collect_media(note_id, note)
+                    result = collect_media(
+                        note_id,
+                        note,
+                        prefer_original_image=prefer_original_image,
+                        max_video_height=max_video_height,
+                        prefer_hdr_video=prefer_hdr_video,
+                    )
                     return replace(result, cookie_expired=True)
 
     if not has_token and cookie:
@@ -242,7 +281,13 @@ async def parse_note(client: httpx.AsyncClient, input_url: str, cookie: str = ""
         if not _is_captcha(response.text) and not _is_blocked(response):
             note = extract_note_from_html(response.text)
             if note is not None:
-                return collect_media(note_id, note)
+                return collect_media(
+                    note_id,
+                    note,
+                    prefer_original_image=prefer_original_image,
+                    max_video_height=max_video_height,
+                    prefer_hdr_video=prefer_hdr_video,
+                )
 
     if response is not None and _is_captcha(response.text):
         raise NoteParseError("被小红书风控拦截，请稍后重试或更新 Cookie")

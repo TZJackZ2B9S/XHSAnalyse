@@ -11,6 +11,7 @@ from gsuid_core.sv import Plugins  # noqa: E402 - xhs_core 必须先加入 sys.p
 
 Plugins(
     name="XHSAnalyse",
+    force_prefix=["xhs"],
     allow_empty_prefix=True,
     alias=["xhs", "小红书"],
 )

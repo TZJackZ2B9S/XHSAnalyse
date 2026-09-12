@@ -128,8 +128,17 @@ def build_info_text(result: NoteResult, media: tuple[PreparedMedia, ...]) -> str
         lines.append(f"发布时间: {result.publish_time}")
     if result.type == "video" and result.video_quality:
         lines.append(f"视频画质: {result.video_quality}")
+        actual_height = next(
+            (item.height or item.width for item in result.media if item.is_video),
+            0,
+        )
+        if result.target_video_height > 0 and actual_height > 0 and actual_height < result.target_video_height:
+            lines.append(
+                f"提示: 目标画质 {result.target_video_height}p，"
+                f"源视频最高仅 {actual_height}p，已按实际最高画质下载"
+            )
     if result.cookie_expired and result.type == "video":
-        lines.append("提示: 本次未使用登录态，视频可能只有 720p，请检查 Cookie")
+        lines.append("提示: 本次未使用 Cookies，视频通常最高 720p；有 Cookies 也受源视频实际清晰度限制")
     if result.desc:
         lines.append(result.desc)
     if result.has_live_photo:
@@ -139,7 +148,13 @@ def build_info_text(result: NoteResult, media: tuple[PreparedMedia, ...]) -> str
     return "\n".join(lines)
 
 
-def build_forward_message(result: NoteResult, media: tuple[PreparedMedia, ...], info_text: str) -> Message:
+def build_forward_message(
+    result: NoteResult,
+    media: tuple[PreparedMedia, ...],
+    info_text: str,
+    *,
+    video_send_type: str = "base64",
+) -> Message:
     """构建与 Yunzai 版本一致的信息/封面节点加媒体节点。"""
 
     images = [item for item in media if not item.is_video]
@@ -156,7 +171,7 @@ def build_forward_message(result: NoteResult, media: tuple[PreparedMedia, ...], 
     for item in media:
         if cover is not None and item.path == cover.path:
             continue
-        nodes.append(media_to_message(item, video_send_type="base64"))
+        nodes.append(media_to_message(item, video_send_type=video_send_type))
     return MessageSegment.node(nodes)
 
 

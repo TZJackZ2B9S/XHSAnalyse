@@ -35,12 +35,16 @@ def _resolution(stream: object) -> int:
     return min(width, height) if width and height else max(width, height)
 
 
-def _stream_rank(stream: object) -> tuple[int, int, int]:
-    return (
-        _resolution(stream),
-        _is_h265(stream),
-        number(stream, "videoBitrate", "video_bitrate"),
-    )
+def _hdr_stream_rank(stream: object) -> tuple[int, int, int, int]:
+    """HDR 内部排序：分辨率 > 编码 > 码率。"""
+
+    return (1, _resolution(stream), _is_h265(stream), number(stream, "videoBitrate", "video_bitrate"))
+
+
+def _sdr_stream_rank(stream: object) -> tuple[int, int, int]:
+    """SDR 内部排序：分辨率 > 编码 > 码率。"""
+
+    return (_resolution(stream), _is_h265(stream), number(stream, "videoBitrate", "video_bitrate"))
 
 
 def _choice(url: str, stream: object, *, hdr: bool, quality: str) -> StreamChoice:
@@ -56,8 +60,13 @@ def _choice(url: str, stream: object, *, hdr: bool, quality: str) -> StreamChoic
     )
 
 
-def get_best_video_url(note_data: object) -> StreamChoice | None:
-    """按原插件规则选择网页笔记主视频。"""
+def get_best_video_url(
+    note_data: object,
+    *,
+    max_height: int = 0,
+    prefer_hdr: bool = True,
+) -> StreamChoice | None:
+    """按配置选择主视频：目标画质优先，实际不足时取源最高画质。"""
 
     note = as_object(note_data)
     video = as_object(field(note, "video"))
@@ -89,18 +98,23 @@ def get_best_video_url(note_data: object) -> StreamChoice | None:
             target.append((item, url, group))
 
     all_streams = [*standard, *ef]
+    if max_height > 0:
+        limited = [item for item in all_streams if 0 < _resolution(item[0]) <= max_height]
+        unknown = [item for item in all_streams if _resolution(item[0]) <= 0]
+        all_streams = limited or unknown or all_streams
+
     hdr_streams = [item for item in all_streams if _is_hdr(item[0])]
-    if hdr_streams:
-        best = max(hdr_streams, key=lambda item: _stream_rank(item[0]))
+    if prefer_hdr and hdr_streams:
+        best = max(hdr_streams, key=lambda item: _hdr_stream_rank(item[0]))
         resolution = _resolution(best[0]) or number(best[0], "height")
         return _choice(best[1], best[0], hdr=True, quality=f"{resolution}p HDR")
-    if origin_url:
+    if origin_url and max_height <= 0:
         return StreamChoice(origin_url, 0, 0, 0, 0, False, "", "origin")
     non_ef4 = [item for item in all_streams if not _is_ef4(item[0], item[2])]
     pool = non_ef4 or all_streams
     if not pool:
         return None
-    best = max(pool, key=lambda item: _stream_rank(item[0]))
+    best = max(pool, key=lambda item: _sdr_stream_rank(item[0]))
     resolution = _resolution(best[0]) or number(best[0], "height")
     return _choice(best[1], best[0], hdr=False, quality=f"{resolution}p")
 

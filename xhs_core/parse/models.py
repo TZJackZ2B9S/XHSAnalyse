@@ -32,6 +32,7 @@ class NoteResult:
     media: tuple[MediaItem, ...]
     cookie_expired: bool = False
     source: str = "http"
+    target_video_height: int = 0
 
     @property
     def has_live_photo(self) -> bool:
