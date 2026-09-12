@@ -1,5 +1,5 @@
 [project]
-name = "gscore-xhs"
+name = "xhs-analyse"
 version = "0.1.0"
 description = "GsCore 小红书笔记与媒体解析插件"
 readme = "README.md"
@@ -26,5 +26,5 @@ select = ["E", "F", "I", "W"]
 [tool.ruff.lint.isort]
 combine-as-imports = true
 length-sort = true
-known-first-party = ["gsuid_core", "GsCoreXHS"]
+known-first-party = ["gsuid_core", "XHSAnalyse"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]

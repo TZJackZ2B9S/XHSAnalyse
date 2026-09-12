@@ -23,15 +23,15 @@ async def _run_command(*args: str) -> bool:
             if process.returncode is None:
                 process.kill()
             await process.communicate()
-            logger.warning("[GsCoreXHS] 图片转码超时")
+            logger.warning("[XHSAnalyse] 图片转码超时")
             return False
         if process.returncode != 0:
             detail = stderr.decode("utf-8", errors="replace").strip()
-            logger.debug(f"[GsCoreXHS] 图片转码失败：{detail[-300:]}")
+            logger.debug(f"[XHSAnalyse] 图片转码失败：{detail[-300:]}")
             return False
         return True
     except OSError as error:
-        logger.debug(f"[GsCoreXHS] 图片转码命令不可用：{error}")
+        logger.debug(f"[XHSAnalyse] 图片转码命令不可用：{error}")
         return False
 
 

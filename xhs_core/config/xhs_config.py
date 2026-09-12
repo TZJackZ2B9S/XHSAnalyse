@@ -1,4 +1,4 @@
-"""GsCoreXHS 配置读取。"""
+"""XHSAnalyse 配置读取。"""
 
 from dataclasses import dataclass
 
@@ -8,7 +8,7 @@ from gsuid_core.utils.plugins_config.gs_config import StringConfig
 from .paths import CONFIG_PATH
 from .config_default import CONFIG_DEFAULT
 
-GsCoreXHSConfig = StringConfig("GsCoreXHS", CONFIG_PATH, CONFIG_DEFAULT)
+XHSAnalyseConfig = StringConfig("XHSAnalyse", CONFIG_PATH, CONFIG_DEFAULT)
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,23 +25,23 @@ class XhsSettings:
 
 
 def _str(name: str) -> str:
-    item = GsCoreXHSConfig.get_config(name)
+    item = XHSAnalyseConfig.get_config(name)
     if not isinstance(item, GsStrConfig):
-        raise TypeError(f"GsCoreXHS 配置 {name} 类型错误")
+        raise TypeError(f"XHSAnalyse 配置 {name} 类型错误")
     return item.data
 
 
 def _bool(name: str) -> bool:
-    item = GsCoreXHSConfig.get_config(name)
+    item = XHSAnalyseConfig.get_config(name)
     if not isinstance(item, GsBoolConfig):
-        raise TypeError(f"GsCoreXHS 配置 {name} 类型错误")
+        raise TypeError(f"XHSAnalyse 配置 {name} 类型错误")
     return item.data
 
 
 def _int(name: str) -> int:
-    item = GsCoreXHSConfig.get_config(name)
+    item = XHSAnalyseConfig.get_config(name)
     if not isinstance(item, GsIntConfig):
-        raise TypeError(f"GsCoreXHS 配置 {name} 类型错误")
+        raise TypeError(f"XHSAnalyse 配置 {name} 类型错误")
     return item.data
 
 

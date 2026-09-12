@@ -57,7 +57,7 @@ async def _parse_first_valid(client: httpx.AsyncClient, urls: tuple[str, ...], c
             last_error = error
             if "无法提取笔记 ID" not in str(error) and "无法提取笔记数据" not in str(error):
                 raise
-            logger.warning(f"[GsCoreXHS] 跳过无效候选链接：{url[:120]}（{error}）")
+            logger.warning(f"[XHSAnalyse] 跳过无效候选链接：{url[:120]}（{error}）")
     raise last_error or NoteParseError("无法提取笔记 ID")
 
 
@@ -93,12 +93,12 @@ async def _handle_urls(
         await bot.unsend(processing_ids)
         return True
     except (NoteParseError, httpx.HTTPError) as error:
-        logger.warning(f"[GsCoreXHS] 解析失败：{error}")
+        logger.warning(f"[XHSAnalyse] 解析失败：{error}")
         if notify:
             await bot.send(str(error))
         return False
     except Exception:
-        logger.exception("[GsCoreXHS] 处理链接时发生未预期异常")
+        logger.exception("[XHSAnalyse] 处理链接时发生未预期异常")
         if notify:
             await bot.send("小红书解析失败，请稍后重试")
         return False

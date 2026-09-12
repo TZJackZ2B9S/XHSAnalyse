@@ -1,4 +1,4 @@
-"""GsCoreXHS 帮助入口。"""
+"""XHSAnalyse 帮助入口。"""
 
 from PIL import Image
 
@@ -18,7 +18,7 @@ async def send_help(bot: Bot, _ev: Event) -> None:
 
 
 register_help(
-    "GsCoreXHS",
-    f"{get_plugin_available_prefix('GsCoreXHS')}帮助",
+    "XHSAnalyse",
+    f"{get_plugin_available_prefix('XHSAnalyse')}帮助",
     Image.open(ICON),
 )

@@ -1,4 +1,4 @@
-"""GsCoreXHS 配置定义。"""
+"""XHSAnalyse 配置定义。"""
 
 from gsuid_core.utils.plugins_config.models import (
     GSC,

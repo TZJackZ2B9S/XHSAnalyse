@@ -76,14 +76,14 @@ async def _download_single(
             video_path.unlink(missing_ok=True)
             target.unlink(missing_ok=True)
         if not created:
-            logger.warning(f"[GsCoreXHS] Live Photo 合成失败：{item.url}")
+            logger.warning(f"[XHSAnalyse] Live Photo 合成失败：{item.url}")
             return None
         return PreparedMedia(output, item, index, False)
 
     if not is_video:
         jpeg_path = await ensure_jpeg(target)
         if jpeg_path is None:
-            logger.warning(f"[GsCoreXHS] 图片转码失败：{item.url}")
+            logger.warning(f"[XHSAnalyse] 图片转码失败：{item.url}")
             target.unlink(missing_ok=True)
             return None
         if jpeg_path != target:

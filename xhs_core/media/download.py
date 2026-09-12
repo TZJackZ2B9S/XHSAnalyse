@@ -62,7 +62,7 @@ async def cleanup_cache(max_age_seconds: int = _CACHE_TTL_SECONDS) -> int:
             await asyncio.to_thread(path.unlink, missing_ok=True)
             removed += 1
     if removed:
-        logger.info(f"[GsCoreXHS] 清理 {removed} 个过期媒体缓存")
+        logger.info(f"[XHSAnalyse] 清理 {removed} 个过期媒体缓存")
     return removed
 
 
@@ -96,7 +96,7 @@ async def download_media(
                 response.raise_for_status()
                 content_length = int(response.headers.get("content-length", "0") or 0)
                 if content_length > max_bytes:
-                    logger.warning(f"[GsCoreXHS] 媒体超过大小上限，跳过：{url}")
+                    logger.warning(f"[XHSAnalyse] 媒体超过大小上限，跳过：{url}")
                     return None
                 async with aiofiles.open(output, "wb") as file:
                     async for chunk in response.aiter_bytes(_CHUNK_SIZE):
@@ -110,7 +110,7 @@ async def download_media(
         except (httpx.HTTPError, OSError, ValueError) as error:
             await asyncio.to_thread(output.unlink, missing_ok=True)
             if attempt + 1 >= retries:
-                logger.warning(f"[GsCoreXHS] 媒体下载失败：{url}：{error}")
+                logger.warning(f"[XHSAnalyse] 媒体下载失败：{url}：{error}")
                 return None
             await asyncio.sleep(min(float(attempt + 1), 3.0))
     return None

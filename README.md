@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="ICON.png" width="128" alt="GsCoreXHS">
+  <img src="ICON.png" width="128" alt="XHSAnalyse">
 
-  <h1>GsCoreXHS</h1>
+  <h1>XHSAnalyse</h1>
 </div>
 
 GsCore 的小红书笔记解析与媒体下载插件。支持分享短链、笔记直链、无水印图片、视频、HDR 和 Live 图；不使用浏览器，也不包含扫码登录。
@@ -20,7 +20,7 @@ GsCore 的小红书笔记解析与媒体下载插件。支持分享短链、笔�
 在 GsCore 的 `gsuid_core/plugins/` 目录执行：
 
 ```bash
-git clone https://github.com/<your-name>/GsCoreXHS.git
+git clone https://github.com/<your-name>/XHSAnalyse.git
 ```
 
 重启 GsCore 后，插件会按 `pyproject.toml` 自动安装 `httpx`、`aiofiles`。
@@ -44,7 +44,7 @@ xhs https://www.xiaohongshu.com/explore/xxxxxxxxxxxxxxxxxxxxxxxx
 
 ## 配置
 
-配置文件：`data/GsCoreXHS/config.json`，也可在 Web 控制台修改。
+配置文件：`data/XHSAnalyse/config.json`，也可在 Web 控制台修改。
 
 | 配置项 | 说明 |
 | --- | --- |
@@ -60,7 +60,7 @@ xhs https://www.xiaohongshu.com/explore/xxxxxxxxxxxxxxxxxxxxxxxx
 
 - 插件不会调用 Puppeteer、Playwright 或 Chromium，也不提供扫码登录。
 - 小红书接口会变化；如果直链解析失败，优先使用 App 分享出的短链。
-- 临时媒体下载到 `data/GsCoreXHS/cache`，发送完成后删除；启动时会清理超过 24 小时的残留文件。
+- 临时媒体下载到 `data/XHSAnalyse/cache`，发送完成后删除；启动时会清理超过 24 小时的残留文件。
 
 ## 测试
 

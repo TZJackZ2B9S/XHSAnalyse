@@ -1,4 +1,4 @@
-"""GsCoreXHS 状态指标。"""
+"""XHSAnalyse 状态指标。"""
 
 from PIL import Image
 
@@ -23,7 +23,7 @@ def _icon() -> Image.Image:
 
 register_status(
     _icon(),
-    "GsCoreXHS",
+    "XHSAnalyse",
     {
         "缓存文件": cache_count,
         "缓存大小MB": cache_size_mb,

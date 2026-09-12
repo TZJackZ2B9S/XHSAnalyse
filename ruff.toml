@@ -8,5 +8,5 @@ select = ["E", "F", "I", "W"]
 [lint.isort]
 combine-as-imports = true
 length-sort = true
-known-first-party = ["gsuid_core", "GsCoreXHS"]
+known-first-party = ["gsuid_core", "XHSAnalyse"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
