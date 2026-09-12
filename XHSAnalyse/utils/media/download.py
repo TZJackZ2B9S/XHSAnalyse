@@ -1,6 +1,7 @@
 """小红书媒体流式下载与缓存。"""
 
 import re
+import time
 import asyncio
 import hashlib
 import secrets
@@ -15,7 +16,9 @@ from ..resource.RESOURCE_PATH import CACHE_PATH
 
 _CHUNK_SIZE = 1024 * 1024
 _CACHE_TTL_SECONDS = 24 * 60 * 60
+_FILE_SEND_TTL_SECONDS = 30 * 60
 _CACHE_PREFIX = "xhs_"
+_cleanup_tasks: set[asyncio.Task[None]] = set()
 
 
 def sanitize_filename(value: str, max_bytes: int = 100) -> str:
@@ -50,10 +53,10 @@ async def cleanup_cache(max_age_seconds: int = _CACHE_TTL_SECONDS) -> int:
 
     if not CACHE_PATH.exists():
         return 0
-    loop = asyncio.get_running_loop()
-    cutoff = loop.time() - max_age_seconds
+    cutoff = time.time() - max_age_seconds
     removed = 0
-    for path in CACHE_PATH.glob(f"{_CACHE_PREFIX}*"):
+    paths = await asyncio.to_thread(lambda: tuple(CACHE_PATH.glob(f"{_CACHE_PREFIX}*")))
+    for path in paths:
         stat = await asyncio.to_thread(path.stat)
         if stat.st_mtime < cutoff:
             await asyncio.to_thread(path.unlink, missing_ok=True)
@@ -61,6 +64,25 @@ async def cleanup_cache(max_age_seconds: int = _CACHE_TTL_SECONDS) -> int:
     if removed:
         logger.info(f"[XHSAnalyse] 清理 {removed} 个过期媒体缓存")
     return removed
+
+
+async def cleanup_stale_cache() -> None:
+    """Core 启动前清理上次进程残留的媒体文件。"""
+
+    await cleanup_cache(_FILE_SEND_TTL_SECONDS)
+
+
+async def _remove_later(path: Path) -> None:
+    await asyncio.sleep(_FILE_SEND_TTL_SECONDS)
+    await asyncio.to_thread(path.unlink, missing_ok=True)
+
+
+def schedule_file_cleanup(path: Path) -> None:
+    """为 file:// 发送保留读取窗口，避免适配器异步读取时文件被删除。"""
+
+    task = asyncio.create_task(_remove_later(path), name=f"XHSAnalyse:remove-file:{path.name}")
+    _cleanup_tasks.add(task)
+    task.add_done_callback(_cleanup_tasks.discard)
 
 
 async def download_media(
@@ -91,7 +113,8 @@ async def download_media(
         try:
             async with client.stream("GET", url, headers=request_headers) as response:
                 response.raise_for_status()
-                content_length = int(response.headers.get("content-length", "0") or 0)
+                content_length_text = response.headers.get("content-length")
+                content_length = int(content_length_text) if content_length_text is not None else 0
                 if content_length > max_bytes:
                     logger.warning(f"[XHSAnalyse] 媒体超过大小上限，跳过：{url}")
                     return None

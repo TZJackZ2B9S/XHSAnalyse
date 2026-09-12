@@ -147,7 +147,7 @@ async def xhs_detect_links(bot: Bot, ev: Event) -> None:
     if not settings.detect_links:
         return
     text = ev.raw_text.strip()
-    if not text or text.startswith(("xhs ", "xhs\n")):
+    if not text or text.startswith(("xhs ", "xhs\n", "xhshttp://", "xhshttps://")):
         return
     urls = extract_urls(text)
     if urls:

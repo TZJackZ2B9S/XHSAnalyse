@@ -18,6 +18,11 @@ def test_extract_urls_strips_chinese_punctuation() -> None:
     assert urls == ("https://xhslink.com/abc",)
 
 
+def test_extract_urls_supports_prefix_without_space() -> None:
+    urls = extract_urls("xhshttps://xhslink.cn/abc")
+    assert urls == ("https://xhslink.cn/abc",)
+
+
 def test_note_id_and_short_link() -> None:
     url = "https://www.xiaohongshu.com/discovery/item/0123456789abcdef01234567"
     assert extract_note_id(url) == "0123456789abcdef01234567"

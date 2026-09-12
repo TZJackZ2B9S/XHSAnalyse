@@ -12,6 +12,13 @@ XHSAnalyseConfig = StringConfig("XHSAnalyse", CONFIG_PATH, CONFIG_DEFAULT)
 # 插件通过符号链接安装时，Core 无法从真实源码路径反推插件名，显式绑定以关联控制台配置组。
 XHSAnalyseConfig.plugin_name = "XHSAnalyse"
 
+_VIDEO_HEIGHTS = {
+    "2160p": 2160,
+    "1440p": 1440,
+    "1080p": 1080,
+    "720p": 720,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class XhsSettings:
@@ -31,7 +38,7 @@ class XhsSettings:
 
     @property
     def target_video_height(self) -> int:
-        return {"2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720}.get(self.video_quality, 1080)
+        return _VIDEO_HEIGHTS[self.video_quality]
 
 
 def _str(name: str) -> str:
@@ -58,7 +65,7 @@ def _int(name: str) -> int:
 def get_settings() -> XhsSettings:
     max_size = max(0, _int("maxMediaSize"))
     video_quality = _str("videoQuality").strip().lower()
-    if video_quality not in {"2160p", "1440p", "1080p", "720p"}:
+    if video_quality not in _VIDEO_HEIGHTS:
         video_quality = "1080p"
     return XhsSettings(
         cookie=_str("cookie").strip(),

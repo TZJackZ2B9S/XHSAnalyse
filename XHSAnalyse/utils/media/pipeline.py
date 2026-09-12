@@ -8,16 +8,22 @@ import httpx
 
 from gsuid_core.logger import logger
 from gsuid_core.models import Message
+from gsuid_core.server import on_core_start_before
 from gsuid_core.segment import MessageSegment
 
 from .image import ensure_jpeg
 from .motion import build_motion_photo
-from .download import download_media, media_filename
+from .download import download_media, media_filename, cleanup_stale_cache, schedule_file_cleanup
 from ..parse.models import MediaItem, NoteResult
 from ...xhs_config.xhs_config import XhsSettings
 
 _LOCAL_FILE_HOST = "localhost"
 _MEDIA_CONCURRENCY = 3
+
+
+@on_core_start_before
+async def cleanup_media_cache() -> None:
+    await cleanup_stale_cache()
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +120,7 @@ async def prepare_media(
 
 def media_to_message(media: PreparedMedia, *, video_send_type: str) -> Message:
     if media.is_video and video_send_type == "file":
+        schedule_file_cleanup(media.path)
         return Message(type="video", data=local_file_uri(media.path))
     if media.is_video:
         return MessageSegment.video(media.path)
@@ -174,4 +181,6 @@ def build_forward_message(
 
 def cleanup_media(media: tuple[PreparedMedia, ...]) -> None:
     for item in media:
+        if item.is_video and item.item.is_video:
+            continue
         item.path.unlink(missing_ok=True)

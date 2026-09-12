@@ -1,7 +1,16 @@
+import asyncio
 from pathlib import Path
+from collections.abc import Coroutine
 
 from XHSAnalyse.utils.parse.models import MediaItem, NoteResult
-from XHSAnalyse.utils.media.pipeline import PreparedMedia, build_info_text, build_forward_message
+from XHSAnalyse.utils.media.download import _cleanup_tasks
+from XHSAnalyse.utils.media.pipeline import (
+    Message,
+    PreparedMedia,
+    cleanup_media,
+    build_info_text,
+    build_forward_message,
+)
 
 
 def _result() -> NoteResult:
@@ -90,7 +99,37 @@ def test_forward_message_respects_file_video_send_type(tmp_path: Path) -> None:
         media=(MediaItem("https://video/main.mp4", is_video=True, quality="1080p"),),
     )
     media = (PreparedMedia(video, result.media[0], 0, True),)
-    forward = build_forward_message(result, media, build_info_text(result, media), video_send_type="file")
+    forward = asyncio.run(_build_file_forward(result, media, build_info_text(result, media)))
     assert forward.type == "node"
     assert forward.data[1].type == "video"
     assert str(forward.data[1].data).startswith("file://localhost/")
+
+
+async def _build_file_forward(
+    result: NoteResult,
+    media: tuple[PreparedMedia, ...],
+    info_text: str,
+) -> Coroutine[object, object, Message]:
+    """在事件循环内构建 file 消息，并清理测试产生的延迟删除任务。"""
+
+    forward = build_forward_message(result, media, info_text, video_send_type="file")
+    await asyncio.sleep(0)
+    for task in list(_cleanup_tasks):
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    return forward
+
+
+def test_cleanup_media_keeps_file_sent_video(tmp_path: Path) -> None:
+    video = tmp_path / "main.mp4"
+    image = tmp_path / "cover.jpg"
+    video.write_bytes(b"video")
+    image.write_bytes(b"image")
+    result = _result()
+    media = (
+        PreparedMedia(image, result.media[0], 0, False),
+        PreparedMedia(video, result.media[1], 1, True),
+    )
+    cleanup_media(media)
+    assert not image.exists()
+    assert video.exists()

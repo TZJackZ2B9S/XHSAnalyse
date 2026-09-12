@@ -3,6 +3,12 @@
 import re
 from dataclasses import dataclass
 
+_NAMED_QUALITY_HEIGHTS = {
+    "8k": 7680,
+    "4k": 3840,
+    "2k": 2560,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class StreamChoice:
@@ -125,7 +131,7 @@ def quality_resolution(stream: object) -> int:
     match = re.search(r"(8k|4320p|4k|2160p|2k|1440p|1080p|720p|576p|540p|480p)", description)
     if match:
         label = match.group(1)
-        return {"8k": 7680, "4k": 3840, "2k": 2560}.get(label, int(label.removesuffix("p")))
+        return _NAMED_QUALITY_HEIGHTS.get(label, int(label.removesuffix("p")))
     for label, resolution in (("uhd", 2160), ("qhd", 1440), ("fhd", 1080), ("hd", 720)):
         if re.search(rf"\b{label}\b", description):
             return resolution

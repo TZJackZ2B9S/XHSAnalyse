@@ -42,8 +42,8 @@ class NoteParseError(RuntimeError):
 
 async def resolve_short_link(client: httpx.AsyncClient, url: str) -> str:
     response = await client.get(url, headers={"User-Agent": UA_MOBILE}, follow_redirects=False)
-    location = response.headers.get("location", "")
-    if not location:
+    location = response.headers.get("location")
+    if location is None:
         return url
     joined = str(httpx.URL(url).join(location))
     return normalize_url(joined) or joined
@@ -126,9 +126,10 @@ def format_timestamp(value: object) -> str:
 
 def _publish_time(note: dict[str, object]) -> str:
     for key in ("time", "lastUpdateTime", "createTime", "publishTime", "postTime"):
-        formatted = format_timestamp(note.get(key))
-        if formatted:
-            return formatted
+        if key in note:
+            formatted = format_timestamp(note[key])
+            if formatted:
+                return formatted
     return ""
 
 
