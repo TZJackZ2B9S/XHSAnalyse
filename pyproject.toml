@@ -1,0 +1,30 @@
+[project]
+name = "gscore-xhs"
+version = "0.1.0"
+description = "GsCore 小红书笔记与媒体解析插件"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.26.0",
+    "aiofiles>=23.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "../.."]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [".git", ".venv", "__pycache__", "build", "dist", "**/*.toml"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+length-sort = true
+known-first-party = ["gsuid_core", "GsCoreXHS"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]

@@ -1,0 +1,33 @@
+{
+  "解析": {
+    "desc": "解析小红书分享链接或笔记链接",
+    "data": [
+      {
+        "name": "小红书",
+        "eg": "小红书 https://xhslink.com/xxxx",
+        "need_ck": false,
+        "need_sk": false,
+        "need_admin": false
+      },
+      {
+        "name": "自动解析",
+        "eg": "直接发送小红书链接",
+        "need_ck": false,
+        "need_sk": false,
+        "need_admin": false
+      }
+    ]
+  },
+  "说明": {
+    "desc": "直接链接和高画质视频需要 Cookie",
+    "data": [
+      {
+        "name": "帮助",
+        "eg": "小红书帮助",
+        "need_ck": false,
+        "need_sk": false,
+        "need_admin": false
+      }
+    ]
+  }
+}
