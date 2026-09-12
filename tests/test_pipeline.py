@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from xhs_core.parse.models import MediaItem, NoteResult
-from xhs_core.media.pipeline import PreparedMedia, build_info_text, build_forward_message
+from XHSAnalyse.utils.parse.models import MediaItem, NoteResult
+from XHSAnalyse.utils.media.pipeline import PreparedMedia, build_info_text, build_forward_message
 
 
 def _result() -> NoteResult:

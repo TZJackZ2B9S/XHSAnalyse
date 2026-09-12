@@ -1,7 +1,11 @@
-"""兼容入口：路径常量实现在 ``xhs_core.config.paths``。"""
+"""XHSAnalyse 运行时路径。"""
 
-from xhs_core.config.paths import MAIN_PATH, CACHE_PATH, CONFIG_PATH
+from pathlib import Path
 
-COOKIE_PATH = MAIN_PATH / "xhs_ck.txt"
+from gsuid_core.data_store import get_res_path
 
-__all__ = ["CACHE_PATH", "CONFIG_PATH", "COOKIE_PATH", "MAIN_PATH"]
+MAIN_PATH: Path = get_res_path("XHSAnalyse")
+CONFIG_PATH: Path = MAIN_PATH / "config.json"
+CACHE_PATH: Path = MAIN_PATH / "cache"
+
+CACHE_PATH.mkdir(parents=True, exist_ok=True)

@@ -26,8 +26,7 @@ UA_MOBILE = (
     "(KHTML, like Gecko) Chrome/131.0.6778.200 Safari/537.36 HeyTapBrowser/51.8.8"
 )
 UA_DESKTOP = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 ACCEPT_MOBILE = (
     "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,"

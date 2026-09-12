@@ -2,8 +2,9 @@
 
 from PIL import Image
 
-from xhs_core.config.paths import CACHE_PATH
 from gsuid_core.status.plugin_status import register_status
+
+from ..utils.resource.RESOURCE_PATH import CACHE_PATH
 
 
 async def cache_count() -> int:

@@ -11,7 +11,7 @@ import aiofiles
 
 from gsuid_core.logger import logger
 
-from ..config.paths import CACHE_PATH
+from ..resource.RESOURCE_PATH import CACHE_PATH
 
 _CHUNK_SIZE = 1024 * 1024
 _CACHE_TTL_SECONDS = 24 * 60 * 60
@@ -38,10 +38,7 @@ def short_hash(value: str) -> str:
 
 def media_filename(note_title: str, author: str, index: int, total: int, url: str, suffix: str) -> str:
     suffix_text = f"_{index + 1}" if total > 1 else ""
-    return (
-        f"xhs_{sanitize_filename(note_title)}_{sanitize_filename(author, 48)}"
-        f"{suffix_text}_{short_hash(url)}{suffix}"
-    )
+    return f"xhs_{sanitize_filename(note_title)}_{sanitize_filename(author, 48)}{suffix_text}_{short_hash(url)}{suffix}"
 
 
 def cache_path(name: str) -> Path:

@@ -1,6 +1,6 @@
 import json
 
-from xhs_core.parse.note import (
+from XHSAnalyse.utils.parse.note import (
     collect_media,
     format_timestamp,
     build_ci_image_url,

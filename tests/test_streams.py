@@ -1,5 +1,5 @@
-from xhs_core.parse.video import get_best_video_url
-from xhs_core.parse.streams import select_stream, select_live_stream
+from XHSAnalyse.utils.parse.video import get_best_video_url
+from XHSAnalyse.utils.parse.streams import select_stream, select_live_stream
 
 
 def _stream(url: str, **overrides: object) -> dict[str, object]:

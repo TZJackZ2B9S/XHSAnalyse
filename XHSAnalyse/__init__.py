@@ -1,17 +1,18 @@
 """XHSAnalyse 插件入口。"""
 
-import sys
-from pathlib import Path
+from gsuid_core.sv import Plugins, config_plugins
 
-_PLUGIN_ROOT = Path(__file__).parents[1]
-if str(_PLUGIN_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PLUGIN_ROOT))
-
-from gsuid_core.sv import Plugins  # noqa: E402 - xhs_core 必须先加入 sys.path
-
-Plugins(
+plugin = Plugins(
     name="XHSAnalyse",
     force_prefix=["xhs"],
-    allow_empty_prefix=True,
-    alias=["xhs", "小红书"],
+    allow_empty_prefix=False,
+    alias=["小红书"],
 )
+
+# 旧版本曾把 allow_empty_prefix 写成 True，框架会用持久化值覆盖代码默认值并生成重复触发器。
+if "XHSAnalyse" in config_plugins:
+    plugin.set(
+        force_prefix=["xhs"],
+        allow_empty_prefix=False,
+        alias=["小红书"],
+    )

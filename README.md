@@ -15,7 +15,7 @@ git clone https://github.com/<your-name>/XHSAnalyse.git
 ## 使用
 
 ```text
-xhs https://xhslink.com/xxxx
+xhs https://xhslink.cn/o/xxxx
 xhs https://www.xiaohongshu.com/explore/xxxxxxxxxxxxxxxxxxxxxxxx
 xhs帮助
 ```

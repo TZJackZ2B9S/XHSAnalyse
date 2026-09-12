@@ -1,4 +1,4 @@
-from xhs_core.media.motion import inject_xmp, build_motion_photo_xmp
+from XHSAnalyse.utils.media.motion import inject_xmp, build_motion_photo_xmp
 
 
 def test_inject_xmp_builds_valid_app1_segment() -> None:
@@ -8,8 +8,8 @@ def test_inject_xmp_builds_valid_app1_segment() -> None:
     assert result.startswith(b"\xff\xd8\xff\xe1")
     length = int.from_bytes(result[4:6], "big")
     assert result[4 + length :] == jpeg[2:]
-    assert b"GCamera:MotionPhoto=\"1\"" in result
-    assert b"OpCamera:VideoLength=\"1234\"" in result
+    assert b'GCamera:MotionPhoto="1"' in result
+    assert b'OpCamera:VideoLength="1234"' in result
 
 
 def test_inject_xmp_rejects_non_jpeg() -> None:

@@ -14,7 +14,7 @@ from .image import ensure_jpeg
 from .motion import build_motion_photo
 from .download import download_media, media_filename
 from ..parse.models import MediaItem, NoteResult
-from ..config.xhs_config import XhsSettings
+from ...xhs_config.xhs_config import XhsSettings
 
 _LOCAL_FILE_HOST = "localhost"
 _MEDIA_CONCURRENCY = 3
@@ -108,9 +108,7 @@ async def prepare_media(
         async with semaphore:
             return await _download_single(client, item, index, len(result.media), result, settings)
 
-    prepared = await asyncio.gather(
-        *(guarded(index, item) for index, item in enumerate(result.media))
-    )
+    prepared = await asyncio.gather(*(guarded(index, item) for index, item in enumerate(result.media)))
     return tuple(item for item in prepared if item is not None)
 
 
@@ -134,8 +132,7 @@ def build_info_text(result: NoteResult, media: tuple[PreparedMedia, ...]) -> str
         )
         if result.target_video_height > 0 and actual_height > 0 and actual_height < result.target_video_height:
             lines.append(
-                f"提示: 目标画质 {result.target_video_height}p，"
-                f"源视频最高仅 {actual_height}p，已按实际最高画质下载"
+                f"提示: 目标画质 {result.target_video_height}p，源视频最高仅 {actual_height}p，已按实际最高画质下载"
             )
     if result.cookie_expired and result.type == "video":
         lines.append("提示: 本次未使用 Cookies，视频通常最高 720p；有 Cookies 也受源视频实际清晰度限制")

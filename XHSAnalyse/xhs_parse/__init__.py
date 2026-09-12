@@ -8,16 +8,17 @@ from gsuid_core.sv import SV
 from gsuid_core.bot import Bot
 from gsuid_core.logger import logger
 from gsuid_core.models import Event
-from xhs_core.parse.note import NoteParseError, parse_note
-from xhs_core.parse.urls import extract_urls, is_short_link, extract_note_id
-from xhs_core.parse.models import NoteResult
-from xhs_core.media.pipeline import (
+
+from ..utils.parse.note import NoteParseError, parse_note
+from ..utils.parse.urls import extract_urls, is_short_link, extract_note_id
+from ..utils.parse.models import NoteResult
+from ..utils.media.pipeline import (
     cleanup_media,
     prepare_media,
     build_info_text,
     build_forward_message,
 )
-from xhs_core.config.xhs_config import XhsSettings, get_settings
+from ..xhs_config.xhs_config import XhsSettings, get_settings
 
 sv = SV("小红书解析")
 
@@ -113,17 +114,12 @@ async def _handle_urls(
         if notify:
             await bot.send(str(error))
         return False
-    except Exception:
-        logger.exception("[XHSAnalyse] 处理链接时发生未预期异常")
-        if notify:
-            await bot.send("小红书解析失败，请稍后重试")
-        return False
     finally:
         await _release_processing(ev.user_id)
 
 
 @sv.on_command(
-    ("小红书", "xhs", "xhs解析", "xhs下载"),
+    "",
     block=True,
     to_ai="""解析小红书分享链接或笔记链接，下载无水印图片、视频和 Live 图。
 当用户发送小红书链接并要求解析、下载或去水印时调用。
@@ -137,18 +133,20 @@ Args:
 async def xhs_parse(bot: Bot, ev: Event) -> None:
     urls = extract_urls(ev.text)
     if not urls:
-        await bot.send("请发送小红书分享链接或笔记链接，例如：xhs https://xhslink.com/xxxx")
+        await bot.send("请发送小红书分享链接或笔记链接，例如：xhs https://xhslink.cn/o/xxxx")
         return
     await _handle_urls(bot, ev, urls, notify=True)
 
 
 @sv.on_message()
 async def xhs_detect_links(bot: Bot, ev: Event) -> None:
+    """自动解析普通消息中的小红书链接；命令消息由 xhs_parse 处理。"""
+
     settings = get_settings()
     if not settings.detect_links:
         return
     text = ev.raw_text.strip()
-    if not text or text.startswith(("小红书 ", "xhs ", "xhs解析 ", "xhs下载 ")):
+    if not text or text.startswith(("xhs ", "xhs\n")):
         return
     urls = extract_urls(text)
     if urls:

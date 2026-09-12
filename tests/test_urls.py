@@ -1,4 +1,4 @@
-from xhs_core.parse.urls import explore_url, extract_urls, is_short_link, extract_note_id
+from XHSAnalyse.utils.parse.urls import explore_url, extract_urls, is_short_link, extract_note_id
 
 
 def test_extract_urls_decodes_escapes_and_deduplicates() -> None:
