@@ -22,6 +22,7 @@ from ..utils.media.pipeline import (
     build_info_text,
     build_note_message,
     build_media_message,
+    select_media_for_delivery,
 )
 from ..xhs_config.xhs_config import XhsSettings, get_settings
 
@@ -176,7 +177,8 @@ async def _handle_urls(
             ai_text += f"\n作者资料: {author_stats}"
         ai_return(ai_text)
         await bot.send(build_note_message(info_text, card_image))
-        await bot.send(build_media_message(media, video_send_type=settings.video_send_type))
+        delivery_media = select_media_for_delivery(result, media)
+        await bot.send(build_media_message(delivery_media, video_send_type=settings.video_send_type))
         return True
     except (NoteParseError, httpx.HTTPError, OSError, RuntimeError, ValueError) as error:
         logger.warning(f"[XHSAnalyse] 解析失败：{error}")

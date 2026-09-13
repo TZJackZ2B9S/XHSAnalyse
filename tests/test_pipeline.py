@@ -10,6 +10,7 @@ from XHSAnalyse.utils.media.pipeline import (
     build_info_text,
     build_note_message,
     build_media_message,
+    select_media_for_delivery,
 )
 
 
@@ -69,6 +70,24 @@ def test_multiple_media_message_contains_only_all_media(tmp_path: Path) -> None:
     assert forward.type == "node"
     assert isinstance(forward.data, list)
     assert [item.type for item in forward.data] == ["image", "video"]
+
+
+def test_video_delivery_sends_video_without_cover(tmp_path: Path) -> None:
+    cover = tmp_path / "cover.jpg"
+    video = tmp_path / "main.mp4"
+    cover.write_bytes(b"cover")
+    video.write_bytes(b"video")
+    result = _result()
+    media = (
+        PreparedMedia(cover, result.media[0], 0, False),
+        PreparedMedia(video, result.media[1], 1, True),
+    )
+
+    delivery = select_media_for_delivery(result, media)
+    message = build_media_message(delivery)
+
+    assert delivery == (media[1],)
+    assert message.type == "video"
 
 
 def test_info_text_mentions_live_hdr_and_cookie(tmp_path: Path) -> None:

@@ -184,6 +184,18 @@ def build_media_message(
     return MessageSegment.node([media_to_message(item, video_send_type=video_send_type) for item in media])
 
 
+def select_media_for_delivery(
+    result: NoteResult,
+    media: tuple[PreparedMedia, ...],
+) -> tuple[PreparedMedia, ...]:
+    """视频笔记只发送视频流，封面仅用于卡片；其他笔记保留全部媒体。"""
+
+    if result.type != "video":
+        return media
+    videos = tuple(item for item in media if item.is_video)
+    return videos or media
+
+
 def cleanup_media(media: tuple[PreparedMedia, ...], *, video_send_type: str = "base64") -> None:
     """清理本次处理产生的媒体文件。
 
