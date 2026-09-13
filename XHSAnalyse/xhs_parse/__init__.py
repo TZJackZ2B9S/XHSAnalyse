@@ -15,6 +15,7 @@ from ..utils.card import render_note_card
 from ..utils.parse.note import NoteParseError, parse_note, enrich_author_profile
 from ..utils.parse.urls import extract_urls, is_short_link, extract_note_id
 from ..utils.parse.models import NoteResult
+from ..utils.parse.message import event_link_text
 from ..utils.media.pipeline import (
     PreparedMedia,
     cleanup_media,
@@ -31,35 +32,6 @@ sv = SV("小红书解析")
 _processing_users: set[str] = set()
 _processing_lock = asyncio.Lock()
 _RN_COMMAND_RE = re.compile(r"^rn(?:\s|https?://|$)", re.IGNORECASE)
-
-
-def _flatten_message_data(value: object) -> str:
-    """提取分享卡片、JSON/XML 和合并转发中的文本，不记录原始卡片内容。"""
-
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        return " ".join(
-            part
-            for key, item in value.items()
-            for part in (_flatten_message_data(key), _flatten_message_data(item))
-            if part
-        )
-    if isinstance(value, (list, tuple)):
-        return " ".join(part for item in value for part in (_flatten_message_data(item),) if part)
-    return ""
-
-
-def _event_link_text(ev: Event) -> str:
-    """兼容普通文本和平台分享卡片，统一交给 URL 提取器处理。"""
-
-    parts = [ev.raw_text, ev.text]
-    for message in ev.content:
-        if message.type in {"text", "json", "xml", "node", "markdown", "share"}:
-            data_text = _flatten_message_data(message.data)
-            if data_text:
-                parts.append(data_text)
-    return " ".join(part.strip() for part in parts if part and part.strip())
 
 
 def _sorted_urls(urls: tuple[str, ...]) -> tuple[str, ...]:
@@ -271,7 +243,7 @@ async def xhs_detect_links(bot: Bot, ev: Event) -> None:
     settings = get_settings()
     if not settings.detect_links:
         return
-    text = _event_link_text(ev).strip()
+    text = event_link_text(ev).strip()
     if not text or _RN_COMMAND_RE.match(text):
         return
     urls = extract_urls(text)
