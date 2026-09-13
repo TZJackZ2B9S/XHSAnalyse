@@ -1,9 +1,11 @@
 import asyncio
 from pathlib import Path
 
+from XHSAnalyse.utils.media import pipeline as media_pipeline
 from XHSAnalyse.utils.parse.models import MediaItem, NoteResult
 from XHSAnalyse.utils.media.download import _cleanup_tasks
 from XHSAnalyse.utils.media.pipeline import (
+    _MEDIA_CONCURRENCY,
     Message,
     PreparedMedia,
     cleanup_media,
@@ -12,6 +14,44 @@ from XHSAnalyse.utils.media.pipeline import (
     build_media_message,
     select_media_for_delivery,
 )
+from XHSAnalyse.xhs_config.xhs_config import XhsSettings
+
+
+def test_media_download_concurrency_is_five() -> None:
+    assert _MEDIA_CONCURRENCY == 5
+
+
+def test_media_download_passes_cookie_to_cdn(monkeypatch, tmp_path: Path) -> None:
+    calls: list[dict[str, object]] = []
+
+    async def fake_download(client, url, **kwargs):
+        calls.append(kwargs)
+        raw = tmp_path / f"raw-{len(calls)}.mp4"
+        raw.write_bytes(b"video")
+        return raw
+
+    monkeypatch.setattr(media_pipeline, "download_media", fake_download)
+    settings = XhsSettings(
+        cookie="sid=secret",
+        proxy="",
+        detect_links=True,
+        video_quality="1080p",
+        max_media_size=1024,
+        fetch_retries=1,
+        prefer_original_image=True,
+        prefer_hdr_video=True,
+        fallback_without_cookie=True,
+        convert_live_photo=True,
+        video_send_type="base64",
+        render_card=False,
+        render_scale=1.0,
+        output_logs=False,
+    )
+    item = MediaItem("https://video.example/main.mp4", is_video=True)
+    result = asyncio.run(media_pipeline._download_single(None, item, 0, 1, _result(), settings))
+
+    assert result is not None
+    assert calls[0]["headers"] == {"Cookie": "sid=secret"}
 
 
 def _result() -> NoteResult:

@@ -1,3 +1,5 @@
+import json
+
 from XHSAnalyse.utils.parse.video import get_best_video_url
 from XHSAnalyse.utils.parse.streams import select_stream, select_live_stream
 
@@ -54,7 +56,7 @@ def test_live_stream_falls_back_to_ef_family() -> None:
     assert result.url == "https://v/ef5.mp4"
 
 
-def test_video_page_hdr_wins_over_origin() -> None:
+def test_video_page_uses_quality_candidate_even_with_origin_key() -> None:
     note = {
         "video": {
             "consumer": {"originVideoKey": "origin.mp4"},
@@ -65,6 +67,7 @@ def test_video_page_hdr_wins_over_origin() -> None:
     assert result is not None
     assert result.url == "https://video/hdr.mp4"
     assert result.quality == "1080p HDR"
+    assert result.is_hdr
 
 
 def test_video_page_uses_origin_without_hdr() -> None:
@@ -76,8 +79,8 @@ def test_video_page_uses_origin_without_hdr() -> None:
     }
     result = get_best_video_url(note)
     assert result is not None
-    assert result.url == "https://sns-video-bd.xhscdn.com/origin.mp4"
-    assert result.quality == "origin"
+    assert result.url == "https://video/sdr.mp4"
+    assert result.quality == "1080p"
 
 
 def test_video_page_avoids_ef4_when_other_sdr_exists() -> None:
@@ -135,6 +138,89 @@ def test_video_quality_limit_falls_back_to_source_maximum() -> None:
     assert result.quality == "720p"
 
 
+def test_origin_stream_is_used_for_4k_when_signed_candidates_are_720p() -> None:
+    """原始视频只有 4K、签名候选只有 720p 时，4K 档位不能降级。"""
+
+    note = {
+        "video": {
+            "consumer": {"originVideoKey": "original.mp4"},
+            "media": {
+                "stream": {
+                    "h264": [_stream("https://video/signed-720.mp4", width=1280, height=720)]
+                }
+            },
+            "mediaV2": json.dumps(
+                {
+                    "video": {"width": 3840, "height": 2160},
+                    "stream": {
+                        "h264": [_stream("https://video/signed-720.mp4", width=1280, height=720)]
+                    },
+                }
+            ),
+        }
+    }
+    result_4k = get_best_video_url(note, max_height=2160)
+    assert result_4k is not None
+    assert result_4k.url == "https://sns-video-bd.xhscdn.com/original.mp4"
+    assert result_4k.quality == "2160p"
+
+    result_1080 = get_best_video_url(note, max_height=1080)
+    assert result_1080 is not None
+    assert result_1080.url == "https://video/signed-720.mp4"
+    assert result_1080.quality == "720p"
+
+
+def test_source_shortage_falls_back_to_720p_candidate() -> None:
+    note = {
+        "video": {
+            "consumer": {"originVideoKey": "original.mp4"},
+            "media": {
+                "stream": {
+                    "h264": [_stream("https://video/720.mp4", width=720, height=1280)],
+                    "h265": [_stream("https://video/720-h265.mp4", width=720, height=1280, hdrType=1)],
+                }
+            },
+        }
+    }
+    for max_height in (720, 1080, 1440, 2160):
+        result = get_best_video_url(note, max_height=max_height, prefer_hdr=True)
+        assert result is not None
+        assert result.url.endswith("/720-h265.mp4")
+        assert result.quality == "720p HDR"
+
+
+def test_media_v2_raw_stream_matches_configured_quality() -> None:
+    note = {
+        "video": {
+            "consumer": {"originVideoKey": "original.mp4"},
+            "media": {"stream": {"h264": [_stream("https://video/page-720.mp4", width=1280, height=720)]}},
+            "mediaV2": json.dumps(
+                {
+                    "video": {"width": 3840, "height": 2160},
+                    "stream": {
+                        "EF5": [
+                            _stream("https://video/raw-1080.mp4", width=1920, height=1080, videoCodec="EF5"),
+                            _stream("https://video/raw-1440.mp4", width=2560, height=1440, videoCodec="EF5"),
+                            _stream("https://video/raw-2160.mp4", width=3840, height=2160, videoCodec="EF5"),
+                        ]
+                    },
+                }
+            ),
+        }
+    }
+    expected = {
+        720: ("https://video/page-720.mp4", "720p"),
+        1080: ("https://video/raw-1080.mp4", "1080p"),
+        1440: ("https://video/raw-1440.mp4", "1440p"),
+        2160: ("https://video/raw-2160.mp4", "2160p"),
+    }
+    for target, (url, quality) in expected.items():
+        result = get_best_video_url(note, max_height=target)
+        assert result is not None
+        assert result.url == url
+        assert result.quality == quality
+
+
 def test_video_quality_limit_720_caps_4k_source() -> None:
     note = {
         "video": {
@@ -169,6 +255,28 @@ def test_hdr_preference_can_be_disabled() -> None:
     result = get_best_video_url(note, prefer_hdr=False)
     assert result is not None
     assert result.url == "https://video/sdr.mp4"
+
+
+def test_quality_target_beats_lower_resolution_hdr_stream() -> None:
+    """HDR 仅用于同档位择优，不能把 1080p/2K 降成 720p。"""
+
+    note = {
+        "video": {
+            "media": {
+                "stream": {
+                    "h264": [
+                        _stream("https://video/1080-sdr.mp4", width=1920, height=1080, hdrType=0),
+                        _stream("https://video/720-hdr.mp4", width=1280, height=720, hdrType=1),
+                    ]
+                }
+            }
+        }
+    }
+    result = get_best_video_url(note, max_height=1080, prefer_hdr=True)
+    assert result is not None
+    assert result.url == "https://video/1080-sdr.mp4"
+    assert result.quality == "1080p"
+    assert not result.is_hdr
 
 
 def test_real_hdr_video_prefers_4k_hdr_over_plain_4k() -> None:

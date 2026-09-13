@@ -53,10 +53,9 @@ CONFIG_DEFAULT: dict[str, GSC] = {
     ),
     "renderScale": GsIntConfig(
         title="卡片渲染精度",
-        desc="调整卡片输出精度，范围 50%～200%；数值越高越清晰，同时会增加图片体积和内存占用。",
+        desc="调整卡片输出精度，范围 100%～500%；数值越高越清晰，同时会增加图片体积和内存占用。",
         data=150,
-        max_value=200,
-        options=[50, 75, 100, 125, 150, 175, 200],
+        max_value=500,
     ),
     "preferOriginalImage": GsBoolConfig(
         title="图片优先原图",
@@ -65,7 +64,7 @@ CONFIG_DEFAULT: dict[str, GSC] = {
     ),
     "preferHdrVideo": GsBoolConfig(
         title="视频优先 HDR",
-        desc="存在 HDR 流时优先选择 HDR；关闭后按所选清晰度和码率选择。",
+        desc="同一清晰度存在多个流时优先选择 HDR；不会为了 HDR 降低目标清晰度。",
         data=True,
     ),
     "fallbackWithoutCookie": GsBoolConfig(

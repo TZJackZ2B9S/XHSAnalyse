@@ -12,8 +12,32 @@ XHSAnalyseConfig = StringConfig("XHSAnalyse", CONFIG_PATH, CONFIG_DEFAULT)
 # 插件通过符号链接安装时，Core 无法从真实源码路径反推插件名，显式绑定以关联控制台配置组。
 XHSAnalyseConfig.plugin_name = "XHSAnalyse"
 
+# 升级时清理旧 options 与范围元数据，避免控制台沿用旧值。
+_render_scale_config = XHSAnalyseConfig.get_config("renderScale")
+if isinstance(_render_scale_config, GsIntConfig):
+    config_changed = False
+    if _render_scale_config.options:
+        _render_scale_config.options = []
+        config_changed = True
+    if _render_scale_config.max_value != 500:
+        _render_scale_config.max_value = 500
+        config_changed = True
+    bounded_scale = max(100, min(500, _render_scale_config.data))
+    if _render_scale_config.data != bounded_scale:
+        _render_scale_config.data = bounded_scale
+        config_changed = True
+    if config_changed:
+        XHSAnalyseConfig.write_config()
+
+# 核心会保留孤儿键，显式删除已废弃的卡片压缩配置。
+if "renderCompression" in XHSAnalyseConfig.config:
+    XHSAnalyseConfig.config.pop("renderCompression")
+    XHSAnalyseConfig.write_config()
+
 _VIDEO_HEIGHTS = {
+    "4k": 2160,
     "2160p": 2160,
+    "2k": 1440,
     "1440p": 1440,
     "1080p": 1080,
     "720p": 720,
@@ -65,6 +89,10 @@ def _int(name: str) -> int:
     return item.data
 
 
+def _render_scale(value: int) -> float:
+    return max(1.0, min(5.0, value / 100))
+
+
 def get_settings() -> XhsSettings:
     max_size = max(0, _int("maxMediaSize"))
     video_quality = _str("videoQuality").strip().lower()
@@ -83,7 +111,7 @@ def get_settings() -> XhsSettings:
         convert_live_photo=_bool("convertLivePhoto"),
         video_send_type=_str("videoSendType").strip().lower(),
         render_card=_bool("renderCard"),
-        render_scale=max(0.5, min(2.0, _int("renderScale") / 100)),
+        render_scale=_render_scale(_int("renderScale")),
         output_logs=_bool("outputLogs"),
     )
 

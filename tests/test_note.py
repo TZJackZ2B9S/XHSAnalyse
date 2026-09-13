@@ -1,12 +1,19 @@
 import json
 
 from XHSAnalyse.utils.parse.note import (
+    UA_NOTE,
     collect_media,
     format_timestamp,
     build_ci_image_url,
     extract_note_from_html,
     extract_author_profile_from_html,
 )
+
+
+def test_note_request_uses_desktop_ua_for_full_video_manifest() -> None:
+    assert "Windows NT" in UA_NOTE
+    assert "Chrome/" in UA_NOTE
+    assert "Mobile" not in UA_NOTE
 
 
 def test_build_ci_image_url() -> None:

@@ -3,6 +3,7 @@
 import asyncio
 from pathlib import Path
 from dataclasses import dataclass
+from collections.abc import Callable, Awaitable
 
 import httpx
 
@@ -18,7 +19,7 @@ from ..parse.models import MediaItem, NoteResult
 from ...xhs_config.xhs_config import XhsSettings
 
 _LOCAL_FILE_HOST = "localhost"
-_MEDIA_CONCURRENCY = 3
+_MEDIA_CONCURRENCY = 5
 
 
 @on_core_start_before
@@ -60,6 +61,7 @@ async def _download_single(
         suffix=suffix,
         max_bytes=settings.max_media_size,
         retries=settings.fetch_retries,
+        headers={"Cookie": settings.cookie} if settings.cookie else None,
         output_logs=settings.output_logs,
     )
     if target is None:
@@ -74,6 +76,7 @@ async def _download_single(
                 suffix=".mp4",
                 max_bytes=settings.max_media_size,
                 retries=settings.fetch_retries,
+                headers={"Cookie": settings.cookie} if settings.cookie else None,
                 output_logs=settings.output_logs,
             )
             if video_path is None:
@@ -115,18 +118,27 @@ async def prepare_media(
     client: httpx.AsyncClient,
     result: NoteResult,
     settings: XhsSettings,
+    on_media_ready: Callable[[PreparedMedia], Awaitable[None]] | None = None,
 ) -> tuple[PreparedMedia, ...]:
-    """下载全部媒体；单个失败不会中断其他媒体。"""
+    """并发下载全部媒体；单个失败不会中断其他媒体。
+
+    ``on_media_ready`` 会在单个媒体完成格式处理后立即调用。回调应只安排
+    后续工作，不要等待其它媒体；返回值仍按笔记原始顺序排列。
+    """
 
     semaphore = asyncio.Semaphore(_MEDIA_CONCURRENCY)
 
     async def guarded(index: int, item: MediaItem) -> PreparedMedia | None:
+        prepared: PreparedMedia | None
         async with semaphore:
             try:
-                return await _download_single(client, item, index, len(result.media), result, settings)
+                prepared = await _download_single(client, item, index, len(result.media), result, settings)
             except (OSError, RuntimeError, ValueError) as error:
                 logger.warning(f"[XHSAnalyse] 跳过第 {index + 1} 个媒体：{error}")
                 return None
+        if prepared is not None and on_media_ready is not None:
+            await on_media_ready(prepared)
+        return prepared
 
     prepared = await asyncio.gather(*(guarded(index, item) for index, item in enumerate(result.media)))
     return tuple(item for item in prepared if item is not None)
@@ -146,7 +158,10 @@ def build_info_text(result: NoteResult, media: tuple[PreparedMedia, ...]) -> str
     if result.publish_time:
         lines.append(f"发布时间: {result.publish_time}")
     if result.type == "video" and result.video_quality:
-        lines.append(f"视频画质: {result.video_quality}")
+        quality = result.video_quality
+        if quality.lower() == "origin":
+            quality = "原画（原始视频流）"
+        lines.append(f"视频画质: {quality}")
         actual_height = next(
             (item.height or item.width for item in result.media if item.is_video),
             0,
@@ -177,7 +192,7 @@ def build_media_message(
     *,
     video_send_type: str = "base64",
 ) -> Message:
-    """单媒体直接发送，多媒体合并为一条转发消息。"""
+    """构建单条媒体消息或合并转发消息。"""
 
     if len(media) == 1:
         return media_to_message(media[0], video_send_type=video_send_type)

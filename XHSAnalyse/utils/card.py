@@ -129,7 +129,11 @@ def _color_veil(width: int, height: int) -> Image.Image:
     return veil
 
 
-def _build_background(path: Path, render_scale: float, card_height: int | None = None) -> bytes:
+def _build_background(
+    path: Path,
+    render_scale: float,
+    card_height: int | None = None,
+) -> bytes:
     width = max(1, round(_WIDTH * render_scale))
     source = Image.open(path).convert("RGB")
     resolved_height, cover_height, cover_top = _card_geometry(source.size)
@@ -149,13 +153,31 @@ def _build_background(path: Path, render_scale: float, card_height: int | None =
     result = Image.alpha_composite(ambient, cover_layer)
     result = Image.alpha_composite(result, _color_veil(width, height)).convert("RGB")
     output = BytesIO()
-    result.save(output, format="PNG", optimize=True)
+    # 保留完整像素数据；卡片尺寸本身受控，不额外做 PNG 压缩。
+    result.save(output, format="PNG", optimize=False)
     return output.getvalue()
 
 
 def _image_size(path: Path) -> tuple[int, int]:
     with Image.open(path) as image:
         return image.size
+
+
+def _crop_rendered_card(content: bytes, width: int, height: int) -> bytes:
+    """将按 100% 精度渲染的卡片缩放到低精度目标尺寸。
+
+    pytakumi 在 ``device_pixel_ratio < 1`` 时会把 CSS 内容绘制到视口左侧，
+    右侧留下未绘制的黑/透明区域。低精度模式统一先按 100% 完整渲染，
+    再缩放整张卡片，不能只裁左侧，否则标题和右侧元素会被截断。
+    """
+
+    image = Image.open(BytesIO(content)).convert("RGBA")
+    target_width = max(1, width)
+    target_height = max(1, height)
+    resized = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    output = BytesIO()
+    resized.save(output, format="PNG", optimize=False)
+    return output.getvalue()
 
 
 def _data_uri(content: bytes, mime: str = "image/png") -> str:
@@ -177,7 +199,7 @@ def _apply_card_corners(content: bytes, render_scale: float) -> bytes:
     )
     image.putalpha(mask)
     output = BytesIO()
-    image.save(output, format="PNG", optimize=True)
+    image.save(output, format="PNG", optimize=False)
     return output.getvalue()
 
 
@@ -242,18 +264,24 @@ def _video_meta(result: NoteResult) -> str:
 
     quality = (result.video_quality or "").strip()
     resolution = quality.split(maxsplit=1)[0] if quality else ""
-    match = re.fullmatch(r"(\d{3,4})p", resolution.lower())
-    if match:
-        resolution = {
-            "4320": "8K",
-            "2160": "4K",
-            "1440": "2K",
-        }.get(match.group(1), f"{match.group(1)}P")
+    if resolution.lower() == "origin":
+        resolution = "原画"
+    named_resolution = resolution.lower()
+    if named_resolution in {"8k", "4k", "2k"}:
+        resolution = named_resolution.upper()
     else:
-        video = next((item for item in result.media if item.is_video), None)
-        if video is not None:
-            pixels = min(video.width, video.height) if video.width and video.height else 0
-            resolution = f"{pixels}P" if pixels else "视频"
+        match = re.fullmatch(r"(\d{3,4})p", named_resolution)
+        if match:
+            resolution = {
+                "4320": "8K",
+                "2160": "4K",
+                "1440": "2K",
+            }.get(match.group(1), f"{match.group(1)}P")
+        else:
+            video = next((item for item in result.media if item.is_video), None)
+            if video is not None:
+                pixels = min(video.width, video.height) if video.width and video.height else 0
+                resolution = f"{pixels}P" if pixels else "视频"
     hdr = "HDR" if "hdr" in quality.lower() or any(item.is_video and item.is_hdr for item in result.media) else ""
     return " ".join(part for part in (resolution or "视频", hdr) if part)
 
@@ -315,16 +343,16 @@ def _live_icon_uri(render_scale: float) -> str:
         y = center + outer_radius * math.sin(angle)
         draw.ellipse(
             (x - dot_radius, y - dot_radius, x + dot_radius, y + dot_radius),
-            fill="#555555",
+            fill="#4a4a4a",
         )
     draw.ellipse(
         (25 * geometry_scale, 25 * geometry_scale, 75 * geometry_scale, 75 * geometry_scale),
-        outline="#555555",
+        outline="#4a4a4a",
         width=max(1, round(6 * geometry_scale)),
     )
     draw.ellipse(
         (40 * geometry_scale, 40 * geometry_scale, 60 * geometry_scale, 60 * geometry_scale),
-        fill="#555555",
+        fill="#4a4a4a",
     )
     image = image.resize((target_size, target_size), Image.Resampling.LANCZOS)
     output = BytesIO()
@@ -435,29 +463,35 @@ async def render_note_card(
     if not cover_path.is_file():
         return None
     try:
-        scale = max(0.5, min(2.0, float(render_scale)))
+        scale = max(1.0, min(5.0, float(render_scale)))
         avatar_task = _download_avatar(client, result.author_avatar)
         size_task = asyncio.to_thread(_image_size, cover_path)
         avatar_uri, source_size = await asyncio.gather(avatar_task, size_task)
         card_height, _, _ = _card_geometry(source_size)
-        background_task = asyncio.to_thread(_build_background, cover_path, scale, card_height)
+        render_scale = scale
+        background_task = asyncio.to_thread(
+            _build_background,
+            cover_path,
+            render_scale,
+            card_height,
+        )
         template_task = asyncio.to_thread(
             _template,
             result,
             sum(1 for item in result.media if not item.is_video),
             avatar_uri,
-            scale,
+            render_scale,
             card_height,
         )
         background, template = await asyncio.gather(background_task, template_task)
         template = template.replace("{{BACKGROUND}}", _data_uri(background))
-        output_width = round(_WIDTH * scale)
-        output_height = round(card_height * scale)
+        render_width = round(_WIDTH * render_scale)
+        render_height = round(card_height * render_scale)
         rendered = await render_html_to_bytes(
             template,
-            max_width=output_width,
-            dpi=96 * scale,
-            device_height=output_height,
+            max_width=render_width,
+            dpi=96 * render_scale,
+            device_height=render_height,
             allow_refit=True,
             default_font_size=25,
             font_name="MiSans",

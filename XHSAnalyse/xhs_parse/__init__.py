@@ -127,8 +127,9 @@ async def _handle_urls(
             await bot.send("正在处理上一条小红书链接，请稍后重试")
         return False
     processing_ids: list[str | int] | None = None
-    card_image: bytes | None = None
     media: tuple[PreparedMedia, ...] = ()
+    card_task: asyncio.Task[bool] | None = None
+    card_sent = False
     try:
         if notify:
             recall_ids = await bot.send("检测到小红书链接，正在解析...", wait_recall=True)
@@ -143,21 +144,63 @@ async def _handle_urls(
         ) as client:
             result = await _parse_first_valid(client, urls, settings)
             if settings.output_logs:
+                cookie_state = "已使用" if settings.cookie and not result.cookie_expired else "未使用"
                 logger.info(
-                    f"[XHSAnalyse] 笔记解析成功：{result.note_id}，类型={result.type}，媒体数={len(result.media)}"
+                    f"[XHSAnalyse] 笔记解析成功：{result.note_id}，类型={result.type}，媒体数={len(result.media)}，"
+                    f"Cookies={cookie_state}"
                 )
-            media = await prepare_media(client, result, settings)
+                if result.type == "video":
+                    video = next((item for item in result.media if item.is_video), None)
+                    if video is not None:
+                        logger.info(
+                            f"[XHSAnalyse] 视频档位选择：目标 {settings.video_quality} "
+                            f"({settings.target_video_height}p)，实际 {result.video_quality or '未知'}，"
+                            f"流尺寸 {video.width}x{video.height}"
+                        )
+
+            async def render_and_send_card(cover: PreparedMedia) -> bool:
+                card = await render_note_card(
+                    result,
+                    cover.path,
+                    client,
+                    render_scale=settings.render_scale,
+                )
+                if card is None:
+                    return False
+                await bot.send(build_note_message("", card))
+                return True
+
+            cover_index = next(
+                (index for index, item in enumerate(result.media) if not item.is_video),
+                None,
+            )
+
+            async def on_media_ready(prepared: PreparedMedia) -> None:
+                nonlocal card_task
+                if (
+                    not settings.render_card
+                    or prepared.is_video
+                    or prepared.index != cover_index
+                    or card_task is not None
+                ):
+                    return
+                card_task = asyncio.create_task(
+                    render_and_send_card(prepared),
+                    name=f"XHSAnalyse:render-card:{result.note_id}",
+                )
+
+            media = await prepare_media(client, result, settings, on_media_ready=on_media_ready)
+            if settings.render_card and card_task is None:
+                fallback_cover = next((item for item in media if not item.is_video), None)
+                if fallback_cover is not None:
+                    card_task = asyncio.create_task(
+                        render_and_send_card(fallback_cover),
+                        name=f"XHSAnalyse:render-card:{result.note_id}",
+                    )
+            if card_task is not None:
+                card_sent = await card_task
             if settings.output_logs:
                 logger.info(f"[XHSAnalyse] 媒体准备完成：成功 {len(media)}/{len(result.media)} 个")
-            if settings.render_card:
-                cover = next((item for item in media if not item.is_video), None)
-                if cover is not None:
-                    card_image = await render_note_card(
-                        result,
-                        cover.path,
-                        client,
-                        render_scale=settings.render_scale,
-                    )
         if not media:
             if notify:
                 await bot.send("未能下载任何媒体，请稍后重试")
@@ -176,9 +219,15 @@ async def _handle_urls(
         if author_stats:
             ai_text += f"\n作者资料: {author_stats}"
         ai_return(ai_text)
-        await bot.send(build_note_message(info_text, card_image))
+        if not card_sent:
+            await bot.send(build_note_message(info_text))
         delivery_media = select_media_for_delivery(result, media)
-        await bot.send(build_media_message(delivery_media, video_send_type=settings.video_send_type))
+        await bot.send(
+            build_media_message(
+                delivery_media,
+                video_send_type=settings.video_send_type,
+            )
+        )
         return True
     except (NoteParseError, httpx.HTTPError, OSError, RuntimeError, ValueError) as error:
         logger.warning(f"[XHSAnalyse] 解析失败：{error}")

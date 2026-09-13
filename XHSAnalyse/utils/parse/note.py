@@ -27,9 +27,12 @@ UA_MOBILE = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.6778.200 Safari/537.36 HeyTapBrowser/51.8.8"
 )
+# 小红书会根据设备 UA 下发不同的视频流清单。移动端页面通常只暴露 720p，
+# 桌面端页面才会在 ``media`` / ``mediaV2`` 中附带 1080p、2K 和 4K 签名流。
+# 使用桌面 UA 与网页端请求保持一致，清晰度选择才能作用于完整候选集合。
 UA_NOTE = (
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
-    "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
 )
 ACCEPT_MOBILE = (
     "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,"
@@ -43,8 +46,11 @@ class NoteParseError(RuntimeError):
     """笔记解析失败。"""
 
 
-async def resolve_short_link(client: httpx.AsyncClient, url: str) -> str:
-    response = await client.get(url, headers={"User-Agent": UA_MOBILE}, follow_redirects=False)
+async def resolve_short_link(client: httpx.AsyncClient, url: str, cookie: str = "") -> str:
+    headers = {"User-Agent": UA_MOBILE}
+    if cookie:
+        headers["Cookie"] = cookie
+    response = await client.get(url, headers=headers, follow_redirects=False)
     location = response.headers.get("location")
     if location is None:
         return url
@@ -436,7 +442,7 @@ async def parse_note(
 ) -> NoteResult:
     """解析分享短链或笔记链接。"""
 
-    resolved_url = await resolve_short_link(client, input_url) if is_short_link(input_url) else input_url
+    resolved_url = await resolve_short_link(client, input_url, cookie) if is_short_link(input_url) else input_url
     note_id = extract_note_id(resolved_url)
     if not note_id:
         raise NoteParseError("无法提取笔记 ID")

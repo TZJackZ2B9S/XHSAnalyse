@@ -2,7 +2,7 @@ import base64
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from XHSAnalyse.utils.card import (
     _template,
@@ -12,6 +12,7 @@ from XHSAnalyse.utils.card import (
     _build_background,
     _author_stats_html,
     _apply_card_corners,
+    _crop_rendered_card,
 )
 from XHSAnalyse.utils.parse.models import MediaItem, NoteResult
 
@@ -56,6 +57,19 @@ def test_card_corners_are_transparent() -> None:
     assert isinstance(center, tuple)
     assert corner[3] == 0
     assert center[3] == 255
+
+
+def test_low_scale_renderer_resize_keeps_full_card() -> None:
+    source = Image.new("RGBA", (720, 100), "#000000")
+    ImageDraw.Draw(source).rectangle((0, 0, 359, 99), fill="#abcdef")
+    encoded = BytesIO()
+    source.save(encoded, format="PNG")
+
+    cropped = Image.open(BytesIO(_crop_rendered_card(encoded.getvalue(), 360, 100))).convert("RGBA")
+
+    assert cropped.size == (360, 100)
+    assert cropped.getpixel((90, 50))[:3] == (171, 205, 239)
+    assert cropped.getpixel((359, 50))[:3] == (0, 0, 0)
 
 
 def test_author_stats_keep_icon_and_number_in_one_column() -> None:

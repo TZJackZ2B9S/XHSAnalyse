@@ -1,0 +1,2 @@
+include ICON.png
+recursive-include XHSAnalyse *.html *.json

@@ -3,7 +3,8 @@ name = "xhs-analyse"
 version = "0.1.0"
 description = "GsCore 小红书笔记与媒体解析插件"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.26.0",
@@ -13,10 +14,18 @@ dependencies = [
     "qrcode[pil]>=7.3.1,<8.0.0",
 ]
 
+[tool.gsuid]
+kind = "plugin"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+XHSAnalyse = ["utils/*.html", "xhs_help/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "../.."]
-asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 120
