@@ -13,6 +13,7 @@ from XHSAnalyse.utils.card import (
     _author_stats_html,
     _apply_card_corners,
     _crop_rendered_card,
+    _description_preview,
 )
 from XHSAnalyse.utils.parse.models import MediaItem, NoteResult
 
@@ -107,8 +108,9 @@ def test_video_card_footer_is_not_labeled_as_image_note() -> None:
         note_id="note-video",
         title="视频标题",
         author="作者",
-        desc="",
+        desc="这是一段视频正文摘要",
         publish_time="",
+        ip_location="中国台湾",
         type="video",
         video_quality="720p",
         media=(
@@ -119,7 +121,7 @@ def test_video_card_footer_is_not_labeled_as_image_note() -> None:
 
     rendered = _template(result, 1, "", 1.0)
 
-    assert '<div class="media-kind">视频</div>' in rendered
+    assert '<div class="desc-preview">这是一段视频正文摘要</div>' in rendered
     assert "720P" in rendered
 
 
@@ -140,6 +142,26 @@ def test_video_meta_uses_four_k_and_hdr_label() -> None:
     assert "4K HDR" in rendered
 
 
+def test_card_shows_ip_location_next_to_publish_time() -> None:
+    result = NoteResult(
+        note_id="note-location",
+        title="标题",
+        author="作者",
+        desc="",
+        publish_time="2026-09-14 12:00",
+        type="image",
+        video_quality=None,
+        media=(MediaItem("https://img.example/cover.jpg"),),
+        ip_location="中国台湾",
+    )
+
+    rendered = _template(result, 1, "", 1.0)
+
+    assert 'class="location-icon"' in rendered
+    assert 'class="location-name">中国台湾</span>' in rendered
+    assert '<span class="publish-time">2026-09-14 12:00</span>' in rendered
+
+
 def test_card_uses_plugin_icon_for_brand_mark() -> None:
     result = NoteResult(
         note_id="note-brand",
@@ -157,3 +179,29 @@ def test_card_uses_plugin_icon_for_brand_mark() -> None:
     assert '<img class="brand-icon"' in rendered
     assert 'alt="XHSAnalyse"' in rendered
     assert '<div class="brand">小红书</div>' not in rendered
+
+
+def test_card_places_caption_above_qr_code() -> None:
+    result = NoteResult(
+        note_id="note-qr-caption",
+        title="标题",
+        author="作者",
+        desc="",
+        publish_time="",
+        type="image",
+        video_quality=None,
+        media=(MediaItem("https://img.example/cover.jpg"),),
+        share_url="https://www.xiaohongshu.com/explore/note-qr-caption",
+    )
+
+    rendered = _template(result, 1, "", 1.0)
+
+    assert '<div class="qr-wrap"><div class="qr-caption">扫码直达笔记</div>' in rendered
+
+
+def test_description_preview_is_limited_and_omits_tags() -> None:
+    preview = _description_preview("正文内容 #话题 " + "很长" * 30)
+
+    assert "#话题" not in preview
+    assert len(preview) <= 32
+    assert preview.endswith("…")

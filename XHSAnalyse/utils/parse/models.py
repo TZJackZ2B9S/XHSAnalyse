@@ -44,6 +44,7 @@ class NoteResult:
     author_follows: str = ""
     author_fans: str = ""
     author_like_and_collect: str = ""
+    ip_location: str = ""
 
     @property
     def has_live_photo(self) -> bool:

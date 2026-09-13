@@ -105,6 +105,7 @@ def test_collect_media_extracts_card_metadata() -> None:
             "type": "normal",
             "title": "测试卡片",
             "desc": "正文 #标签",
+            "ipLocation": "中国台湾",
             "user": {
                 "nickname": "作者",
                 "userId": "user-1",
@@ -127,6 +128,7 @@ def test_collect_media_extracts_card_metadata() -> None:
     assert result.author_id == "user-1"
     assert result.author_avatar == "https://avatar.example/a.jpg"
     assert result.share_url.endswith("01234567")
+    assert result.ip_location == "中国台湾"
 
 
 def test_collect_media_extracts_optional_author_profile_stats() -> None:

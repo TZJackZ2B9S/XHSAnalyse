@@ -8,24 +8,29 @@ body { width: 720px; font-family: "MiSans", sans-serif; color: #222; background:
 .avatar { width: 62px; height: 62px; border-radius: 50%; background: rgba(226,226,226,.80); object-fit: cover; }
 .author-meta { margin-left: 14px; min-width: 0; }
 .author-name { font-size: 30px; font-weight: 700; color: #222; line-height: 1.18; }
-.author-sub { margin-top: 5px; font-size: 20px; color: #777; }
+.author-sub { display: flex; align-items: center; gap: 14px; margin-top: 5px; font-size: 20px; color: #666; }
+.publish-time { white-space: nowrap; }
+.location { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
+.location-icon { width: 18px; height: 18px; fill: none; stroke: #666; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+.location-name { overflow: hidden; text-overflow: ellipsis; }
 .brand-icon { width: 78px; height: 78px; object-fit: contain; }
 .body { position: absolute; left: 50px; right: 50px; top: 120px; }
 .title { max-width: 620px; font-size: 36px; font-weight: 700; color: #1f1f1f; line-height: 1.22; word-break: break-word; }
-.tags { margin-top: 17px; font-size: 24px; color: #686868; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tags { margin-top: 17px; font-size: 24px; color: #5f5f5f; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .note-meta { display: flex; align-items: center; margin-top: 20px; }
 .pill { display: flex; align-items: center; padding: 8px 16px; border-radius: 999px; background: rgba(255,255,255,.72); color: #555; font-size: 21px; }
 .pill-dot { width: 9px; height: 9px; border-radius: 50%; background: #ff2442; margin-right: 10px; }
 .footer { position: absolute; left: 50px; right: 50px; bottom: 45px; }
-.media-line { display: flex; align-items: center; justify-content: space-between; font-size: 21px; color: #4a4a4a; }
-.media-kind { display: flex; align-items: center; gap: 8px; }
-.live-icon { width: 23px; height: 23px; color: #4a4a4a; }
+.media-line { display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 21px; color: #4a4a4a; }
+.desc-preview { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-resolution { flex: 0 0 auto; white-space: nowrap; }
 .stats { display: flex; gap: 44px; margin-top: 16px; }
+.user-info > .stats { position: relative; top: -10px; margin-bottom: 24px; }
 .stat { min-width: 72px; }
 .stat-label { font-size: 19px; font-weight: 600; color: #555; }
 .stat-value { margin-top: 4px; font-size: 32px; white-space: nowrap; font-weight: 700; color: #000; line-height: 1.05; }
 .generated { margin-top: 13px; font-size: 18px; color: #818181; }
-.user-row { display: flex; align-items: flex-start; justify-content: space-between; margin-top: 33px; gap: 20px; }
+.user-row { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 20px; gap: 20px; }
 .user-info { min-width: 0; flex: 1 1 auto; }
 .user-info > .author { align-items: flex-start; }
 .mini-avatar { width: 54px; height: 54px; }
@@ -39,6 +44,8 @@ body { width: 720px; font-family: "MiSans", sans-serif; color: #222; background:
 .author-stat-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .author-stat-label { color: #777; font-size: 15px; letter-spacing: -.2px; line-height: 1.1; }
 .author-stat strong { color: #222; font-size: 24px; font-weight: 700; line-height: 1; }
+.qr-wrap { width: 176px; display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
+.qr-caption { margin-bottom: 6px; color: #777; font-size: 16px; line-height: 1.2; text-align: center; white-space: nowrap; }
 .qr { width: 176px; height: 176px; border-radius: 10px; object-fit: contain; background: #fff; }
 .qr-placeholder { width: 176px; height: 176px; border-radius: 10px; background: #111; }
 </style>
@@ -49,7 +56,7 @@ body { width: 720px; font-family: "MiSans", sans-serif; color: #222; background:
       {{AVATAR}}
       <div class="author-meta">
         <div class="author-name">{{AUTHOR}}</div>
-        <div class="author-sub">{{PUBLISH_TIME}}</div>
+        <div class="author-sub"><span class="publish-time">{{PUBLISH_TIME}}</span>{{LOCATION}}</div>
       </div>
     </div>
     <img class="brand-icon" src="{{BRAND_ICON}}" alt="XHSAnalyse">
@@ -60,16 +67,16 @@ body { width: 720px; font-family: "MiSans", sans-serif; color: #222; background:
     <div class="note-meta"><div class="pill"><div class="pill-dot"></div><span>{{MEDIA_LABEL}}</span></div></div>
   </div>
   <div class="footer">
-    <div class="media-line"><div class="media-kind">{{LIVE_LABEL}}</div><span>{{MEDIA_META}}</span></div>
-    <div class="stats">
-      <div class="stat"><div class="stat-label">点赞</div><div class="stat-value">{{LIKED_COUNT}}</div></div>
-      <div class="stat"><div class="stat-label">评论</div><div class="stat-value">{{COMMENT_COUNT}}</div></div>
-      <div class="stat"><div class="stat-label">收藏</div><div class="stat-value">{{COLLECTED_COUNT}}</div></div>
-      <div class="stat"><div class="stat-label">分享</div><div class="stat-value">{{SHARE_COUNT}}</div></div>
-    </div>
+    <div class="media-line"><div class="desc-preview">{{DESC_PREVIEW}}</div><span class="media-resolution">{{MEDIA_META}}</span></div>
     <div class="generated">图片生成于: {{GENERATED_AT}}</div>
     <div class="user-row">
       <div class="user-info">
+        <div class="stats">
+          <div class="stat"><div class="stat-label">点赞</div><div class="stat-value">{{LIKED_COUNT}}</div></div>
+          <div class="stat"><div class="stat-label">评论</div><div class="stat-value">{{COMMENT_COUNT}}</div></div>
+          <div class="stat"><div class="stat-label">收藏</div><div class="stat-value">{{COLLECTED_COUNT}}</div></div>
+          <div class="stat"><div class="stat-label">分享</div><div class="stat-value">{{SHARE_COUNT}}</div></div>
+        </div>
         <div class="author">
           {{MINI_AVATAR}}
           <div class="mini-meta">
@@ -79,7 +86,7 @@ body { width: 720px; font-family: "MiSans", sans-serif; color: #222; background:
         </div>
         {{AUTHOR_STATS}}
       </div>
-      {{QR}}
+      <div class="qr-wrap"><div class="qr-caption">扫码直达笔记</div>{{QR}}</div>
     </div>
   </div>
 </div>

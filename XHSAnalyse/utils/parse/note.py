@@ -317,6 +317,7 @@ def collect_media(
         title=title,
         author=author,
         desc=as_text(field(note, "desc")),
+        ip_location=as_text(field(note, "ipLocation", "ip_location")).strip(),
         publish_time=_publish_time(note),
         type="video" if has_main_video else "image",
         video_quality=video_quality,

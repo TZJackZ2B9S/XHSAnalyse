@@ -230,6 +230,18 @@ def _tags(desc: str) -> str:
     return " ".join(dict.fromkeys(values[:5]))
 
 
+def _description_preview(desc: str, limit: int = 32) -> str:
+    """清理正文中的话题并限制底部单行摘要长度。"""
+
+    text = re.sub(r"#[^#\s\[\]]+", "", desc)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return "暂无正文"
+    if len(text) > limit:
+        return text[: max(1, limit - 1)].rstrip() + "…"
+    return text
+
+
 def _value(value: str) -> str:
     return html.escape(value or "0")
 
@@ -360,6 +372,61 @@ def _live_icon_uri(render_scale: float) -> str:
     return _data_uri(output.getvalue())
 
 
+@lru_cache(maxsize=8)
+def _location_icon_uri(render_scale: float) -> str:
+    """生成小尺寸位置图标，避免 HTML 渲染器放大内联 SVG。"""
+
+    target_size = max(1, round(18 * render_scale))
+    source_size = max(96, target_size * 4)
+    scale = source_size / 96
+    image = Image.new("RGBA", (source_size, source_size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    points: list[tuple[float, float]] = []
+
+    def cubic(
+        start: tuple[float, float],
+        control_one: tuple[float, float],
+        control_two: tuple[float, float],
+        end: tuple[float, float],
+        steps: int = 20,
+    ) -> None:
+        for index in range(steps + 1):
+            t = index / steps
+            inverse = 1 - t
+            points.append(
+                (
+                    (
+                        inverse**3 * start[0]
+                        + 3 * inverse**2 * t * control_one[0]
+                        + 3 * inverse * t**2 * control_two[0]
+                        + t**3 * end[0]
+                    )
+                    * scale,
+                    (
+                        inverse**3 * start[1]
+                        + 3 * inverse**2 * t * control_one[1]
+                        + 3 * inverse * t**2 * control_two[1]
+                        + t**3 * end[1]
+                    )
+                    * scale,
+                )
+            )
+
+    # 两段贝塞尔曲线加顶部圆弧，勾勒出标准地图针脚轮廓。
+    cubic((48, 88), (20, 64), (18, 55), (20, 35))
+    for index in range(1, 21):
+        angle = math.pi - math.pi * index / 20
+        points.append(((48 + 28 * math.cos(angle)) * scale, (35 - 28 * math.sin(angle)) * scale))
+    cubic((76, 35), (78, 55), (76, 64), (48, 88))
+    draw.line(points, fill="#666666", width=max(1, round(7 * scale)), joint="curve")
+    inner = (36 * scale, 25 * scale, 60 * scale, 49 * scale)
+    draw.ellipse(inner, outline="#666666", width=max(1, round(6 * scale)))
+    image = image.resize((target_size, target_size), Image.Resampling.LANCZOS)
+    output = BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return _data_uri(output.getvalue())
+
+
 def _avatar_html(uri: str, *, mini: bool = False) -> str:
     class_name = "avatar mini-avatar" if mini else "avatar"
     if uri:
@@ -410,12 +477,14 @@ def _template(
     title = html.escape(result.title or "未知标题")
     author = html.escape(result.author or "未知作者")
     publish_time = html.escape(result.publish_time or "小红书笔记")
-    if result.has_live_photo:
-        live_label = (
-            f'<img class="live-icon" width="23" height="23" src="{_live_icon_uri(render_scale)}"><span>实况图</span>'
-        )
-    else:
-        live_label = "视频" if result.type == "video" else "图文"
+    location = html.escape(result.ip_location.strip())
+    location_html = (
+        f'<span class="location"><img class="location-icon" width="18" height="18" '
+        f'src="{_location_icon_uri(render_scale)}" alt="">'
+        f'<span class="location-name">{location}</span></span>'
+        if location
+        else ""
+    )
     media_label = "图文 · 含实况" if result.has_live_photo else ("视频笔记" if result.type == "video" else "图文笔记")
     author_id = html.escape(result.author_red_id or result.author_id or result.note_id)
     generated_at = datetime.now(_CHINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
@@ -425,10 +494,11 @@ def _template(
         "AVATAR": _avatar_html(avatar_uri),
         "MINI_AVATAR": _avatar_html(avatar_uri, mini=True),
         "PUBLISH_TIME": publish_time,
+        "LOCATION": location_html,
         "TITLE": title,
         "TAGS": html.escape(_tags(result.desc)),
         "MEDIA_LABEL": media_label,
-        "LIVE_LABEL": live_label,
+        "DESC_PREVIEW": html.escape(_description_preview(result.desc)),
         "MEDIA_META": _video_meta(result) if result.type == "video" else f"共 {media_count} 张",
         "LIKED_COUNT": _value(result.liked_count),
         "COMMENT_COUNT": _value(result.comment_count),

@@ -157,6 +157,8 @@ def build_info_text(result: NoteResult, media: tuple[PreparedMedia, ...]) -> str
     lines = [f"标题: {result.title}", f"作者: {result.author}"]
     if result.publish_time:
         lines.append(f"发布时间: {result.publish_time}")
+    if result.ip_location:
+        lines.append(f"IP归属地: {result.ip_location}")
     if result.type == "video" and result.video_quality:
         quality = result.video_quality
         if quality.lower() == "origin":
