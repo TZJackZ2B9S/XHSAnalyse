@@ -24,7 +24,7 @@ CONFIG_DEFAULT: dict[str, GSC] = {
     ),
     "detectLinks": GsBoolConfig(
         title="自动解析消息中的小红书链接",
-        desc="开启后，普通消息中出现小红书链接会自动解析，无需发送 xhs 命令。",
+        desc="开启后，普通消息中出现小红书链接会自动解析，无需发送 rn 命令。",
         data=True,
     ),
     "videoQuality": GsStrConfig(

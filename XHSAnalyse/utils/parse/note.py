@@ -162,6 +162,39 @@ def _profile_count(value: object, *keys: str) -> str:
     return count if count not in {"", "-", "--", "—"} else ""
 
 
+def _precise_profile_counts(payload: object) -> dict[str, str]:
+    """读取作者资料接口中的原始整数统计，避免使用页面上的模糊文案。"""
+
+    candidates = [payload, field(payload, "data"), field(field(payload, "data"), "user")]
+    mapping = {
+        "follows": ("follows", "followingCount", "following_count", "followCount"),
+        "fans": ("fans", "fansCount", "fans_count", "followerCount", "follower_count"),
+        "like_and_collect": (
+            "interactions",
+            "interaction",
+            "likeAndCollect",
+            "like_and_collect",
+            "likeCollectCount",
+            "like_collect_count",
+        ),
+    }
+    values: dict[str, str] = {}
+    for candidate in candidates:
+        obj = as_object(candidate)
+        if obj is None:
+            continue
+        for name, keys in mapping.items():
+            if name in values:
+                continue
+            raw = field(obj, *keys)
+            if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+                continue
+            text_value = str(raw).strip()
+            if re.fullmatch(r"\d[\d,]*", text_value):
+                values[name] = text_value.replace(",", "")
+    return values
+
+
 def extract_author_profile_from_html(document: str) -> dict[str, str]:
     """从作者主页状态中提取公开资料统计。"""
 
@@ -317,11 +350,12 @@ def collect_media(
     )
 
 
-async def enrich_author_profile(client: httpx.AsyncClient, result: NoteResult) -> NoteResult:
-    """按作者 ID 补充作者主页公开统计；失败时保留笔记原始结果。"""
-
-    if not result.author_id:
-        return result
+async def _enrich_author_profile(
+    client: httpx.AsyncClient,
+    result: NoteResult,
+    *,
+    cookie: str,
+) -> NoteResult:
     profile_url = httpx.URL(f"https://www.xiaohongshu.com/user/profile/{result.author_id}")
     source_url = httpx.URL(result.share_url) if result.share_url else None
     if source_url is not None:
@@ -330,16 +364,42 @@ async def enrich_author_profile(client: httpx.AsyncClient, result: NoteResult) -
         ]
         if params:
             profile_url = profile_url.copy_with(params=params)
+    headers = {
+        "User-Agent": UA_MOBILE,
+        "Accept": ACCEPT_MOBILE,
+    }
+    if cookie:
+        headers["Cookie"] = cookie
     try:
         response = await client.get(
             profile_url,
-            headers={"User-Agent": UA_MOBILE, "Accept": ACCEPT_MOBILE},
+            headers=headers,
         )
         response.raise_for_status()
     except httpx.HTTPError as error:
         logger.debug(f"[XHSAnalyse] 作者主页资料获取失败：{error}")
         return result
     profile = extract_author_profile_from_html(response.text)
+    if any("+" in profile.get(key, "") for key in ("follows", "fans", "like_and_collect")):
+        api_url = "https://www.xiaohongshu.com/api/sns/web/v1/user/otherinfo"
+        api_params: dict[str, str] = {"target_user_id": result.author_id}
+        if source_url is not None:
+            api_params.update(
+                {
+                    key: value
+                    for key, value in source_url.params.multi_items()
+                    if key in {"xsec_token", "xsec_source"}
+                }
+            )
+        try:
+            api_response = await client.get(api_url, params=api_params, headers=headers)
+        except httpx.HTTPError:
+            api_response = None
+        if api_response is not None and api_response.is_success:
+            try:
+                profile.update(_precise_profile_counts(api_response.json()))
+            except ValueError:
+                pass
     if not profile:
         return result
     return replace(
@@ -349,6 +409,19 @@ async def enrich_author_profile(client: httpx.AsyncClient, result: NoteResult) -
         author_fans=profile.get("fans", result.author_fans),
         author_like_and_collect=profile.get("like_and_collect", result.author_like_and_collect),
     )
+
+
+async def enrich_author_profile(
+    client: httpx.AsyncClient,
+    result: NoteResult,
+    *,
+    cookie: str = "",
+) -> NoteResult:
+    """补充作者主页资料，并优先采用接口返回的精确整数统计。"""
+
+    if not result.author_id:
+        return result
+    return await _enrich_author_profile(client, result, cookie=cookie)
 
 
 async def parse_note(

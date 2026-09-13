@@ -1,5 +1,6 @@
 """小红书链接解析、媒体准备与转发。"""
 
+import re
 import asyncio
 
 import httpx
@@ -28,6 +29,36 @@ sv = SV("小红书解析")
 
 _processing_users: set[str] = set()
 _processing_lock = asyncio.Lock()
+_RN_COMMAND_RE = re.compile(r"^rn(?:\s|https?://|$)", re.IGNORECASE)
+
+
+def _flatten_message_data(value: object) -> str:
+    """提取分享卡片、JSON/XML 和合并转发中的文本，不记录原始卡片内容。"""
+
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return " ".join(
+            part
+            for key, item in value.items()
+            for part in (_flatten_message_data(key), _flatten_message_data(item))
+            if part
+        )
+    if isinstance(value, (list, tuple)):
+        return " ".join(part for item in value for part in (_flatten_message_data(item),) if part)
+    return ""
+
+
+def _event_link_text(ev: Event) -> str:
+    """兼容普通文本和平台分享卡片，统一交给 URL 提取器处理。"""
+
+    parts = [ev.raw_text, ev.text]
+    for message in ev.content:
+        if message.type in {"text", "json", "xml", "node", "markdown", "share"}:
+            data_text = _flatten_message_data(message.data)
+            if data_text:
+                parts.append(data_text)
+    return " ".join(part.strip() for part in parts if part and part.strip())
 
 
 def _sorted_urls(urls: tuple[str, ...]) -> tuple[str, ...]:
@@ -72,7 +103,7 @@ async def _parse_first_valid(
                 fallback_without_cookie=settings.fallback_without_cookie,
             )
             if settings.render_card:
-                result = await enrich_author_profile(client, result)
+                result = await enrich_author_profile(client, result, cookie=settings.cookie)
             return result
         except NoteParseError as error:
             last_error = error
@@ -159,7 +190,7 @@ async def _handle_urls(
 
 
 @sv.on_command(
-    "xhs",
+    "rn",
     block=True,
     prefix=False,
     to_ai="""解析小红书分享链接或笔记链接，下载无水印图片、视频和 Live 图。
@@ -167,7 +198,7 @@ async def _handle_urls(
 
 Args:
     text: 小红书分享链接或笔记链接，可直接填写 URL；多个链接可用空格分隔。
-          例如：https://xhslink.cn/o/xxxx；
+          例如：rn https://xhslink.cn/o/xxxx；
           https://www.xiaohongshu.com/explore/0123456789abcdef01234567；
           或同时提供两个分享链接。
 """,
@@ -177,20 +208,20 @@ Args:
 async def xhs_parse(bot: Bot, ev: Event) -> None:
     urls = extract_urls(ev.text)
     if not urls:
-        await bot.send("请发送小红书分享链接或笔记链接，例如：xhs https://xhslink.cn/o/xxxx")
+        await bot.send("请发送小红书分享链接或笔记链接，例如：rn https://xhslink.cn/o/xxxx")
         return
     await _handle_urls(bot, ev, urls, notify=True)
 
 
 @sv.on_message()
 async def xhs_detect_links(bot: Bot, ev: Event) -> None:
-    """自动解析普通消息中的小红书链接；命令消息由 xhs_parse 处理。"""
+    """自动解析普通消息中的小红书链接；命令消息由命令触发器处理。"""
 
     settings = get_settings()
     if not settings.detect_links:
         return
-    text = ev.raw_text.strip()
-    if not text or text.startswith(("xhs ", "xhs\n", "xhshttp://", "xhshttps://")):
+    text = _event_link_text(ev).strip()
+    if not text or _RN_COMMAND_RE.match(text):
         return
     urls = extract_urls(text)
     if urls:

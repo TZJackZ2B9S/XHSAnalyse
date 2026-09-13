@@ -12,6 +12,7 @@ import asyncio
 from io import BytesIO
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+from functools import lru_cache
 
 import httpx
 import qrcode
@@ -180,6 +181,7 @@ def _apply_card_corners(content: bytes, render_scale: float) -> bytes:
     return output.getvalue()
 
 
+@lru_cache(maxsize=128)
 def _qr_html(value: str, render_scale: float) -> str:
     if not value:
         return '<div class="qr-placeholder"></div>'
@@ -208,6 +210,31 @@ def _tags(desc: str) -> str:
 
 def _value(value: str) -> str:
     return html.escape(value or "0")
+
+
+def _compact_count(number: int) -> str:
+    """把精确整数压缩成卡片可读的中文单位。"""
+
+    if number >= 100_000_000:
+        value = number / 100_000_000
+        return f"{value:.1f}".rstrip("0").rstrip(".") + "亿"
+    if number >= 10_000:
+        value = number / 10_000
+        return f"{value:.1f}".rstrip("0").rstrip(".") + "万"
+    return str(number)
+
+
+def _author_count(value: str) -> str:
+    """只显示精确统计；页面返回 ``10+`` 等区间文案时不伪造数值。"""
+
+    raw = (value or "").strip().replace(",", "")
+    if not raw or "+" in raw:
+        return ""
+    if re.fullmatch(r"\d+", raw):
+        return _compact_count(int(raw))
+    if re.fullmatch(r"\d+(?:\.\d+)?(?:万|亿)", raw):
+        return raw
+    return ""
 
 
 def _video_meta(result: NoteResult) -> str:
@@ -259,17 +286,18 @@ def _author_stats_html(result: NoteResult) -> str:
         ("粉丝", result.author_fans),
         ("获赞与收藏", result.author_like_and_collect),
     )
-    items = [
+    items = [(label, _author_count(value) or "—") for label, value in values if value]
+    rendered = [
         f'<span class="author-stat"><span class="author-stat-head">'
         f'<span class="author-stat-icon">{_AUTHOR_STAT_ICONS[label]}</span>'
         f'<span class="author-stat-label">{label}</span></span>'
         f"<strong>{html.escape(value)}</strong></span>"
-        for label, value in values
-        if value
+        for label, value in items
     ]
-    return f'<div class="author-stats">{"".join(items)}</div>' if items else ""
+    return f'<div class="author-stats">{"".join(rendered)}</div>' if rendered else ""
 
 
+@lru_cache(maxsize=8)
 def _live_icon_uri(render_scale: float) -> str:
     """生成实况图标：点阵外圈、粗线中圈和实心中心。"""
 
@@ -311,6 +339,7 @@ def _avatar_html(uri: str, *, mini: bool = False) -> str:
     return f'<div class="{class_name}"></div>'
 
 
+@lru_cache(maxsize=8)
 def _brand_icon_uri(render_scale: float) -> str:
     """读取插件图标并按卡片精度缩放，供右上角品牌标识使用。"""
 
@@ -383,10 +412,15 @@ def _template(
         "QR": _qr_html(result.share_url, render_scale),
         "CARD_HEIGHT": str(card_height),
     }
-    template = _TEMPLATE_PATH.read_text(encoding="utf-8")
+    template = _template_source()
     for key, value in values.items():
         template = template.replace("{{" + key + "}}", value)
     return template
+
+
+@lru_cache(maxsize=1)
+def _template_source() -> str:
+    return _TEMPLATE_PATH.read_text(encoding="utf-8")
 
 
 async def render_note_card(
@@ -402,17 +436,20 @@ async def render_note_card(
         return None
     try:
         scale = max(0.5, min(2.0, float(render_scale)))
-        avatar_uri = await _download_avatar(client, result.author_avatar)
-        source_size = await asyncio.to_thread(_image_size, cover_path)
+        avatar_task = _download_avatar(client, result.author_avatar)
+        size_task = asyncio.to_thread(_image_size, cover_path)
+        avatar_uri, source_size = await asyncio.gather(avatar_task, size_task)
         card_height, _, _ = _card_geometry(source_size)
-        background = await asyncio.to_thread(_build_background, cover_path, scale, card_height)
-        template = _template(
+        background_task = asyncio.to_thread(_build_background, cover_path, scale, card_height)
+        template_task = asyncio.to_thread(
+            _template,
             result,
             sum(1 for item in result.media if not item.is_video),
             avatar_uri,
             scale,
             card_height,
         )
+        background, template = await asyncio.gather(background_task, template_task)
         template = template.replace("{{BACKGROUND}}", _data_uri(background))
         output_width = round(_WIDTH * scale)
         output_height = round(card_height * scale)

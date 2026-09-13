@@ -15,9 +15,9 @@ GsCore 小红书解析插件。支持分享链接、笔记链接、图片、视�
 ## 使用
 
 ```text
-xhs https://xhslink.cn/o/xxxx
-xhs https://www.xiaohongshu.com/explore/xxxxxxxxxxxxxxxxxxxxxxxx
-xhs帮助
+rn https://xhslink.cn/o/xxxx
+rn https://www.xiaohongshu.com/explore/xxxxxxxxxxxxxxxxxxxxxxxx
+rn帮助
 ```
 
 开启自动解析后，直接发送小红书链接也会解析。

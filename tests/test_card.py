@@ -6,6 +6,7 @@ from PIL import Image
 
 from XHSAnalyse.utils.card import (
     _template,
+    _author_count,
     _card_geometry,
     _live_icon_uri,
     _build_background,
@@ -78,6 +79,13 @@ def test_author_stats_keep_icon_and_number_in_one_column() -> None:
     assert rendered.count('class="author-stat-icon"') == 3
     assert rendered.count('class="author-stat-head"') == 3
     assert rendered.count("<strong>") == 3
+
+
+def test_author_stats_format_exact_counts_without_plus_suffix() -> None:
+    assert _author_count("194") == "194"
+    assert _author_count("17230") == "1.7万"
+    assert _author_count("354715") == "35.5万"
+    assert _author_count("10+") == ""
 
 
 def test_video_card_footer_is_not_labeled_as_image_note() -> None:
