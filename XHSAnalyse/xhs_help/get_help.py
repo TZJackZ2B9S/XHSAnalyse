@@ -23,7 +23,7 @@ async def _load_help() -> dict[str, PluginHelp]:
 
 
 async def get_help() -> bytes:
-    return await get_new_help(
+    help_image = await get_new_help(
         plugin_name="XHSAnalyse",
         plugin_info={f"v{XHSAnalyse_version}": ""},
         plugin_icon=Image.open(ICON),
@@ -33,3 +33,4 @@ async def get_help() -> bytes:
         banner_sub_text="小红书笔记与媒体解析",
         enable_cache=True,
     )
+    return help_image if isinstance(help_image, bytes) else help_image.encode()

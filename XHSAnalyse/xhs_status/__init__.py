@@ -10,14 +10,28 @@ from gsuid_core.status.plugin_status import register_status
 from ..utils.resource.RESOURCE_PATH import CACHE_PATH
 
 
+def _cache_stats() -> tuple[int, int]:
+    count = 0
+    total = 0
+    for path in CACHE_PATH.glob("xhs_*"):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        if not path.is_file():
+            continue
+        count += 1
+        total += stat.st_size
+    return count, total
+
+
 async def cache_count() -> int:
-    paths = await asyncio.to_thread(lambda: tuple(CACHE_PATH.glob("xhs_*")))
-    return len(paths)
+    count, _ = await asyncio.to_thread(_cache_stats)
+    return count
 
 
 async def cache_size_mb() -> float:
-    paths = await asyncio.to_thread(lambda: tuple(CACHE_PATH.glob("xhs_*")))
-    total = sum(path.stat().st_size for path in paths if path.is_file())
+    _, total = await asyncio.to_thread(_cache_stats)
     return round(total / 1024 / 1024, 1)
 
 

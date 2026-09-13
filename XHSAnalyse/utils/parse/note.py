@@ -8,6 +8,8 @@ from dataclasses import replace
 
 import httpx
 
+from gsuid_core.logger import logger
+
 from .urls import explore_url, is_short_link, extract_note_id
 from .video import get_best_video_url
 from .models import MediaItem, NoteResult
@@ -25,8 +27,9 @@ UA_MOBILE = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.6778.200 Safari/537.36 HeyTapBrowser/51.8.8"
 )
-UA_DESKTOP = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+UA_NOTE = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
 )
 ACCEPT_MOBILE = (
     "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,"
@@ -59,9 +62,7 @@ def build_ci_image_url(url: str) -> tuple[str, str] | None:
     return f"https://ci.xiaohongshu.com/{token}", token
 
 
-def extract_note_from_html(document: str) -> dict[str, object] | None:
-    """从 ``__INITIAL_STATE__`` 中取出笔记对象。"""
-
+def _extract_initial_state(document: str) -> dict[str, object] | None:
     marker = document.find("__INITIAL_STATE__")
     if marker < 0:
         return None
@@ -83,13 +84,20 @@ def extract_note_from_html(document: str) -> dict[str, object] | None:
     except json.JSONDecodeError:
         return None
     state_obj = as_object(state)
+    return state_obj
+
+
+def extract_note_from_html(document: str) -> dict[str, object] | None:
+    """从 ``__INITIAL_STATE__`` 中取出笔记对象。"""
+
+    state_obj = _extract_initial_state(document)
     if state_obj is None:
         return None
 
     direct = field(field(field(state_obj, "noteData"), "data"), "noteData")
     direct_obj = as_object(direct)
     if direct_obj is not None and text(direct_obj, "noteId"):
-        return direct_obj
+        return _attach_profile_user(direct_obj, state_obj)
 
     note_map = as_object(field(field(state_obj, "note"), "noteDetailMap"))
     if note_map:
@@ -97,7 +105,7 @@ def extract_note_from_html(document: str) -> dict[str, object] | None:
         first_obj = as_object(first)
         if first_obj is not None:
             note = as_object(field(first_obj, "note"))
-            return note or first_obj
+            return _attach_profile_user(note or first_obj, state_obj)
     return None
 
 
@@ -137,6 +145,65 @@ def _image_url(image: dict[str, object]) -> str:
     return normalize_url(field(image, "urlDefault", "url_default", "url", "urlPre", "url_pre"))
 
 
+def _avatar_url(user: dict[str, object]) -> str:
+    avatar = field(user, "avatar", "avatarUrl", "avatar_url", "image")
+    avatar_obj = as_object(avatar)
+    if avatar_obj is not None:
+        avatar = field(avatar_obj, "urlDefault", "url_default", "url", "urlPre", "url_pre")
+    return normalize_url(avatar)
+
+
+def _count(value: object, *keys: str) -> str:
+    return as_text(field(value, *keys)).strip()
+
+
+def _profile_count(value: object, *keys: str) -> str:
+    count = _count(value, *keys)
+    return count if count not in {"", "-", "--", "—"} else ""
+
+
+def extract_author_profile_from_html(document: str) -> dict[str, str]:
+    """从作者主页状态中提取公开资料统计。"""
+
+    state = _extract_initial_state(document)
+    if state is None:
+        return {}
+    user_state = as_object(field(state, "user")) or {}
+    page_data = as_object(field(user_state, "userPageData")) or {}
+    basic_info = as_object(field(page_data, "basicInfo")) or {}
+    values: dict[str, str] = {}
+    red_id = as_text(field(basic_info, "redId", "red_id")).strip()
+    if red_id:
+        values["red_id"] = red_id
+    interactions = as_array(field(page_data, "interactions")) or []
+    for raw_item in interactions:
+        item = as_object(raw_item)
+        if item is None:
+            continue
+        kind = as_text(field(item, "type")).strip()
+        name = as_text(field(item, "name")).strip()
+        count = _profile_count(item, "count", "i18nCount")
+        if not count:
+            continue
+        if kind == "follows" or name == "关注":
+            values["follows"] = count
+        elif kind == "fans" or name == "粉丝":
+            values["fans"] = count
+        elif name == "获赞与收藏" or kind == "interaction":
+            values["like_and_collect"] = count
+    return values
+
+
+def _attach_profile_user(note: dict[str, object], state: dict[str, object]) -> dict[str, object]:
+    profile = as_object(field(state, "profile"))
+    profile_user = as_object(field(profile, "userInfo", "user_info"))
+    if profile_user is None:
+        return note
+    enriched = dict(note)
+    enriched["_profileUserInfo"] = profile_user
+    return enriched
+
+
 def _live_stream(image: dict[str, object]) -> object | None:
     live = as_object(field(image, "livePhoto", "live_photo"))
     if live is not None:
@@ -156,10 +223,15 @@ def collect_media(
     prefer_original_image: bool = True,
     max_video_height: int = 0,
     prefer_hdr_video: bool = True,
+    share_url: str = "",
 ) -> NoteResult:
     title = as_text(field(note, "displayTitle", "title")) or "未知标题"
     user = as_object(field(note, "user")) or {}
-    author = as_text(field(user, "nickname", "nickName")) or "未知作者"
+    author = as_text(field(user, "nickname", "nickName", "nick_name")) or "未知作者"
+    profile = as_object(field(note, "_profileUserInfo", "profileUserInfo", "profile_user_info")) or {}
+    profile_container = as_object(field(note, "profile"))
+    profile = as_object(field(profile_container, "userInfo", "user_info")) or profile_container or profile
+    interact = as_object(field(note, "interactInfo", "interact_info", "interact")) or {}
     note_type = as_text(field(note, "type"))
     images = as_array(field(note, "imageList")) or []
     media: list[MediaItem] = []
@@ -188,7 +260,16 @@ def collect_media(
             prefer_hdr=prefer_hdr_video,
         )
         if video is not None:
-            media.append(MediaItem(url=video.url, is_video=True, quality=video.quality, is_hdr=video.is_hdr))
+            media.append(
+                MediaItem(
+                    url=video.url,
+                    is_video=True,
+                    quality=video.quality,
+                    is_hdr=video.is_hdr,
+                    width=video.width,
+                    height=video.height,
+                )
+            )
             has_main_video = True
             video_quality = video.quality
 
@@ -202,6 +283,71 @@ def collect_media(
         video_quality=video_quality,
         media=tuple(media),
         target_video_height=max_video_height,
+        liked_count=_count(interact, "likedCount", "liked_count", "likeCount", "like_count"),
+        comment_count=_count(interact, "commentCount", "comment_count"),
+        collected_count=_count(interact, "collectedCount", "collected_count", "collectCount", "collect_count"),
+        share_count=_count(interact, "shareCount", "share_count"),
+        author_id=as_text(field(user, "userId", "user_id", "redId", "red_id", "id")),
+        author_avatar=_avatar_url(user),
+        share_url=share_url,
+        author_follows=(
+            _profile_count(profile, "follows", "followingCount", "following_count", "followCount")
+            or _profile_count(user, "follows", "followingCount", "following_count", "followCount")
+        ),
+        author_fans=(
+            _profile_count(profile, "fans", "fansCount", "fans_count", "followerCount", "follower_count")
+            or _profile_count(user, "fans", "fansCount", "fans_count", "followerCount", "follower_count")
+        ),
+        author_like_and_collect=(
+            _profile_count(
+                profile,
+                "likeAndCollect",
+                "like_and_collect",
+                "likeCollectCount",
+                "like_collect_count",
+            )
+            or _profile_count(
+                user,
+                "likeAndCollect",
+                "like_and_collect",
+                "likeCollectCount",
+                "like_collect_count",
+            )
+        ),
+    )
+
+
+async def enrich_author_profile(client: httpx.AsyncClient, result: NoteResult) -> NoteResult:
+    """按作者 ID 补充作者主页公开统计；失败时保留笔记原始结果。"""
+
+    if not result.author_id:
+        return result
+    profile_url = httpx.URL(f"https://www.xiaohongshu.com/user/profile/{result.author_id}")
+    source_url = httpx.URL(result.share_url) if result.share_url else None
+    if source_url is not None:
+        params = [
+            (key, value) for key, value in source_url.params.multi_items() if key in {"xsec_token", "xsec_source"}
+        ]
+        if params:
+            profile_url = profile_url.copy_with(params=params)
+    try:
+        response = await client.get(
+            profile_url,
+            headers={"User-Agent": UA_MOBILE, "Accept": ACCEPT_MOBILE},
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as error:
+        logger.debug(f"[XHSAnalyse] 作者主页资料获取失败：{error}")
+        return result
+    profile = extract_author_profile_from_html(response.text)
+    if not profile:
+        return result
+    return replace(
+        result,
+        author_red_id=profile.get("red_id", result.author_red_id),
+        author_follows=profile.get("follows", result.author_follows),
+        author_fans=profile.get("fans", result.author_fans),
+        author_like_and_collect=profile.get("like_and_collect", result.author_like_and_collect),
     )
 
 
@@ -224,7 +370,7 @@ async def parse_note(
     has_token = "xsec_token" in resolved_url
     base_url = explore_url(resolved_url, note_id)
     headers = {
-        "User-Agent": UA_MOBILE,
+        "User-Agent": UA_NOTE,
         "Accept": ACCEPT_MOBILE,
         "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
     }
@@ -248,6 +394,7 @@ async def parse_note(
                         prefer_original_image=prefer_original_image,
                         max_video_height=max_video_height,
                         prefer_hdr_video=prefer_hdr_video,
+                        share_url=resolved_url,
                     )
                     return replace(result, cookie_expired=cookie_expired)
             if captcha or blocked or not cookie:
@@ -273,6 +420,7 @@ async def parse_note(
                         prefer_original_image=prefer_original_image,
                         max_video_height=max_video_height,
                         prefer_hdr_video=prefer_hdr_video,
+                        share_url=resolved_url,
                     )
                     return replace(result, cookie_expired=True)
 
@@ -287,6 +435,7 @@ async def parse_note(
                     prefer_original_image=prefer_original_image,
                     max_video_height=max_video_height,
                     prefer_hdr_video=prefer_hdr_video,
+                    share_url=resolved_url,
                 )
 
     if response is not None and _is_captcha(response.text):

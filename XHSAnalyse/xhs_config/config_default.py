@@ -17,6 +17,11 @@ CONFIG_DEFAULT: dict[str, GSC] = {
         data="",
         secret=True,
     ),
+    "proxy": GsStrConfig(
+        title="代理服务器地址",
+        desc="留空使用直连；可填写 HTTP 或 HTTPS 代理地址，例如 http://127.0.0.1:7890。",
+        data="",
+    ),
     "detectLinks": GsBoolConfig(
         title="自动解析消息中的小红书链接",
         desc="开启后，普通消息中出现小红书链接会自动解析，无需发送 xhs 命令。",
@@ -40,6 +45,18 @@ CONFIG_DEFAULT: dict[str, GSC] = {
         ),
         data="base64",
         options=["base64", "file"],
+    ),
+    "renderCard": GsBoolConfig(
+        title="是否开启卡片渲染",
+        desc="发送媒体前生成一张带封面、标题和互动数据的卡片；渲染失败时改为发送文案消息。",
+        data=True,
+    ),
+    "renderScale": GsIntConfig(
+        title="卡片渲染精度",
+        desc="调整卡片输出精度，范围 50%～200%；数值越高越清晰，同时会增加图片体积和内存占用。",
+        data=150,
+        max_value=200,
+        options=[50, 75, 100, 125, 150, 175, 200],
     ),
     "preferOriginalImage": GsBoolConfig(
         title="图片优先原图",

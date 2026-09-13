@@ -1,0 +1,12 @@
+import json
+from pathlib import Path
+
+
+def test_help_examples_do_not_duplicate_plugin_prefix() -> None:
+    help_path = Path(__file__).parents[1] / "XHSAnalyse" / "xhs_help" / "help.json"
+    help_data = json.loads(help_path.read_text(encoding="utf-8"))
+    rendered = ["xhs" + item["eg"] for category in help_data.values() for item in category["data"]]
+
+    assert all("xhsxhs" not in example for example in rendered)
+    assert "xhs https://xhslink.cn/o/xxxx" in rendered
+    assert "xhs帮助" in rendered

@@ -33,6 +33,17 @@ class NoteResult:
     cookie_expired: bool = False
     source: str = "http"
     target_video_height: int = 0
+    liked_count: str = ""
+    comment_count: str = ""
+    collected_count: str = ""
+    share_count: str = ""
+    author_id: str = ""
+    author_avatar: str = ""
+    share_url: str = ""
+    author_red_id: str = ""
+    author_follows: str = ""
+    author_fans: str = ""
+    author_like_and_collect: str = ""
 
     @property
     def has_live_photo(self) -> bool:

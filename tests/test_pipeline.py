@@ -1,6 +1,5 @@
 import asyncio
 from pathlib import Path
-from collections.abc import Coroutine
 
 from XHSAnalyse.utils.parse.models import MediaItem, NoteResult
 from XHSAnalyse.utils.media.download import _cleanup_tasks
@@ -9,7 +8,8 @@ from XHSAnalyse.utils.media.pipeline import (
     PreparedMedia,
     cleanup_media,
     build_info_text,
-    build_forward_message,
+    build_note_message,
+    build_media_message,
 )
 
 
@@ -29,7 +29,32 @@ def _result() -> NoteResult:
     )
 
 
-def test_forward_message_packs_info_and_cover_in_first_node(tmp_path: Path) -> None:
+def test_note_message_uses_card_as_standalone_image() -> None:
+    message = build_note_message("unused", b"card")
+
+    assert message.type == "image"
+    assert message.data == "base64://Y2FyZA=="
+
+
+def test_note_message_falls_back_to_standalone_text() -> None:
+    message = build_note_message("标题: 标题")
+
+    assert message.type == "text"
+    assert message.data == "标题: 标题"
+
+
+def test_single_media_message_is_not_wrapped_in_forward(tmp_path: Path) -> None:
+    image = tmp_path / "cover.jpg"
+    image.write_bytes(b"cover")
+    media = (PreparedMedia(image, MediaItem("https://img/cover.jpg"), 0, False),)
+
+    message = build_media_message(media)
+
+    assert message.type == "image"
+    assert message.data == "base64://Y292ZXI="
+
+
+def test_multiple_media_message_contains_only_all_media(tmp_path: Path) -> None:
     cover = tmp_path / "cover.jpg"
     video = tmp_path / "main.mp4"
     cover.write_bytes(b"cover")
@@ -39,14 +64,11 @@ def test_forward_message_packs_info_and_cover_in_first_node(tmp_path: Path) -> N
         PreparedMedia(cover, result.media[0], 0, False),
         PreparedMedia(video, result.media[1], 1, True),
     )
-    forward = build_forward_message(result, media, build_info_text(result, media))
+    forward = build_media_message(media)
+
     assert forward.type == "node"
     assert isinstance(forward.data, list)
-    assert forward.data[0].type == "node"
-    assert forward.data[0].data[0].type == "text"
-    assert "标题: 标题" in forward.data[0].data[0].data
-    assert forward.data[0].data[1].type == "image"
-    assert forward.data[1].type == "video"
+    assert [item.type for item in forward.data] == ["image", "video"]
 
 
 def test_info_text_mentions_live_hdr_and_cookie(tmp_path: Path) -> None:
@@ -99,28 +121,25 @@ def test_forward_message_respects_file_video_send_type(tmp_path: Path) -> None:
         media=(MediaItem("https://video/main.mp4", is_video=True, quality="1080p"),),
     )
     media = (PreparedMedia(video, result.media[0], 0, True),)
-    forward = asyncio.run(_build_file_forward(result, media, build_info_text(result, media)))
-    assert forward.type == "node"
-    assert forward.data[1].type == "video"
-    assert str(forward.data[1].data).startswith("file://localhost/")
+    message = asyncio.run(_build_file_media(media))
+    assert message.type == "video"
+    assert str(message.data).startswith("file://localhost/")
 
 
-async def _build_file_forward(
-    result: NoteResult,
+async def _build_file_media(
     media: tuple[PreparedMedia, ...],
-    info_text: str,
-) -> Coroutine[object, object, Message]:
-    """在事件循环内构建 file 消息，并清理测试产生的延迟删除任务。"""
+) -> Message:
+    """在事件循环内构建 file 媒体消息，并清理测试产生的延迟删除任务。"""
 
-    forward = build_forward_message(result, media, info_text, video_send_type="file")
+    message = build_media_message(media, video_send_type="file")
     await asyncio.sleep(0)
     for task in list(_cleanup_tasks):
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
-    return forward
+    return message
 
 
-def test_cleanup_media_keeps_file_sent_video(tmp_path: Path) -> None:
+def test_cleanup_media_removes_base64_video(tmp_path: Path) -> None:
     video = tmp_path / "main.mp4"
     image = tmp_path / "cover.jpg"
     video.write_bytes(b"video")
@@ -132,4 +151,22 @@ def test_cleanup_media_keeps_file_sent_video(tmp_path: Path) -> None:
     )
     cleanup_media(media)
     assert not image.exists()
+    assert not video.exists()
+
+
+def test_cleanup_media_keeps_file_sent_video(tmp_path: Path) -> None:
+    video = tmp_path / "main.mp4"
+    video.write_bytes(b"video")
+    media = (PreparedMedia(video, _result().media[1], 1, True),)
+
+    asyncio.run(_cleanup_file_media(media))
+
     assert video.exists()
+
+
+async def _cleanup_file_media(media: tuple[PreparedMedia, ...]) -> None:
+    cleanup_media(media, video_send_type="file")
+    await asyncio.sleep(0)
+    for task in list(_cleanup_tasks):
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

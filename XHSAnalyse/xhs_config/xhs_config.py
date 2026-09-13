@@ -25,6 +25,7 @@ class XhsSettings:
     """单次业务使用的配置快照。"""
 
     cookie: str
+    proxy: str
     detect_links: bool
     video_quality: str
     max_media_size: int
@@ -34,6 +35,8 @@ class XhsSettings:
     fallback_without_cookie: bool
     convert_live_photo: bool
     video_send_type: str
+    render_card: bool
+    render_scale: float
     output_logs: bool
 
     @property
@@ -69,6 +72,7 @@ def get_settings() -> XhsSettings:
         video_quality = "1080p"
     return XhsSettings(
         cookie=_str("cookie").strip(),
+        proxy=_str("proxy").strip(),
         detect_links=_bool("detectLinks"),
         video_quality=video_quality,
         max_media_size=(max_size or 512) * 1024 * 1024,
@@ -78,6 +82,8 @@ def get_settings() -> XhsSettings:
         fallback_without_cookie=_bool("fallbackWithoutCookie"),
         convert_live_photo=_bool("convertLivePhoto"),
         video_send_type=_str("videoSendType").strip().lower(),
+        render_card=_bool("renderCard"),
+        render_scale=max(0.5, min(2.0, _int("renderScale") / 100)),
         output_logs=_bool("outputLogs"),
     )
 

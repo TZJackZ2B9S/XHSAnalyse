@@ -4,7 +4,7 @@
     "data": [
       {
         "name": "小红书",
-        "eg": "xhs https://xhslink.cn/o/xxxx",
+        "eg": " https://xhslink.cn/o/xxxx",
         "need_ck": false,
         "need_sk": false,
         "need_admin": false
@@ -23,7 +23,7 @@
     "data": [
       {
         "name": "帮助",
-        "eg": "xhs帮助",
+        "eg": "帮助",
         "need_ck": false,
         "need_sk": false,
         "need_admin": false

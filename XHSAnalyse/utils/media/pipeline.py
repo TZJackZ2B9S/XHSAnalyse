@@ -60,45 +60,55 @@ async def _download_single(
         suffix=suffix,
         max_bytes=settings.max_media_size,
         retries=settings.fetch_retries,
+        output_logs=settings.output_logs,
     )
     if target is None:
         return None
 
-    if item.is_live and item.live_url and settings.convert_live_photo:
-        video_path = await download_media(
-            client,
-            item.live_url,
-            suffix=".mp4",
-            max_bytes=settings.max_media_size,
-            retries=settings.fetch_retries,
-        )
-        if video_path is None:
-            target.unlink(missing_ok=True)
-            return None
+    output: Path | None = None
+    try:
+        if item.is_live and item.live_url and settings.convert_live_photo:
+            video_path = await download_media(
+                client,
+                item.live_url,
+                suffix=".mp4",
+                max_bytes=settings.max_media_size,
+                retries=settings.fetch_retries,
+                output_logs=settings.output_logs,
+            )
+            if video_path is None:
+                target.unlink(missing_ok=True)
+                return None
+            output = target.with_name(filename)
+            try:
+                created = await build_motion_photo(target, video_path, output)
+            finally:
+                video_path.unlink(missing_ok=True)
+                target.unlink(missing_ok=True)
+            if not created:
+                logger.warning(f"[XHSAnalyse] Live Photo 合成失败：{item.url}")
+                output.unlink(missing_ok=True)
+                return None
+            return PreparedMedia(output, item, index, False)
+
+        if not is_video:
+            jpeg_path = await ensure_jpeg(target)
+            if jpeg_path is None:
+                logger.warning(f"[XHSAnalyse] 图片转码失败：{item.url}")
+                target.unlink(missing_ok=True)
+                return None
+            if jpeg_path != target:
+                target.unlink(missing_ok=True)
+                target = jpeg_path
+
         output = target.with_name(filename)
-        try:
-            created = await build_motion_photo(target, video_path, output)
-        finally:
-            video_path.unlink(missing_ok=True)
-            target.unlink(missing_ok=True)
-        if not created:
-            logger.warning(f"[XHSAnalyse] Live Photo 合成失败：{item.url}")
-            return None
-        return PreparedMedia(output, item, index, False)
-
-    if not is_video:
-        jpeg_path = await ensure_jpeg(target)
-        if jpeg_path is None:
-            logger.warning(f"[XHSAnalyse] 图片转码失败：{item.url}")
-            target.unlink(missing_ok=True)
-            return None
-        if jpeg_path != target:
-            target.unlink(missing_ok=True)
-            target = jpeg_path
-
-    output = target.with_name(filename)
-    target.replace(output)
-    return PreparedMedia(output, item, index, is_video)
+        target.replace(output)
+        return PreparedMedia(output, item, index, is_video)
+    except (OSError, RuntimeError, ValueError):
+        target.unlink(missing_ok=True)
+        if output is not None:
+            output.unlink(missing_ok=True)
+        raise
 
 
 async def prepare_media(
@@ -112,7 +122,11 @@ async def prepare_media(
 
     async def guarded(index: int, item: MediaItem) -> PreparedMedia | None:
         async with semaphore:
-            return await _download_single(client, item, index, len(result.media), result, settings)
+            try:
+                return await _download_single(client, item, index, len(result.media), result, settings)
+            except (OSError, RuntimeError, ValueError) as error:
+                logger.warning(f"[XHSAnalyse] 跳过第 {index + 1} 个媒体：{error}")
+                return None
 
     prepared = await asyncio.gather(*(guarded(index, item) for index, item in enumerate(result.media)))
     return tuple(item for item in prepared if item is not None)
@@ -152,35 +166,33 @@ def build_info_text(result: NoteResult, media: tuple[PreparedMedia, ...]) -> str
     return "\n".join(lines)
 
 
-def build_forward_message(
-    result: NoteResult,
+def build_note_message(info_text: str, card_image: bytes | None = None) -> Message:
+    """构建独立发送的卡片消息；没有卡片时发送文案。"""
+
+    return MessageSegment.image(card_image) if card_image is not None else MessageSegment.text(info_text)
+
+
+def build_media_message(
     media: tuple[PreparedMedia, ...],
-    info_text: str,
     *,
     video_send_type: str = "base64",
 ) -> Message:
-    """构建与 Yunzai 版本一致的信息/封面节点加媒体节点。"""
+    """单媒体直接发送，多媒体合并为一条转发消息。"""
 
-    images = [item for item in media if not item.is_video]
-    cover = next((item for item in images if item.item.is_cover), None)
-    if cover is None and result.type == "video" and images:
-        cover = images[0]
+    if len(media) == 1:
+        return media_to_message(media[0], video_send_type=video_send_type)
+    return MessageSegment.node([media_to_message(item, video_send_type=video_send_type) for item in media])
 
-    nodes: list[Message] = []
-    if cover is not None:
-        nodes.append(MessageSegment.node([MessageSegment.text(info_text), MessageSegment.image(cover.path)]))
-    else:
-        nodes.append(MessageSegment.text(info_text))
+
+def cleanup_media(media: tuple[PreparedMedia, ...], *, video_send_type: str = "base64") -> None:
+    """清理本次处理产生的媒体文件。
+
+    ``file`` 视频需要等待适配器读取 ``file://`` 路径，由
+    :func:`schedule_file_cleanup` 延迟删除；其余媒体在发送完成后即可删除。
+    """
 
     for item in media:
-        if cover is not None and item.path == cover.path:
-            continue
-        nodes.append(media_to_message(item, video_send_type=video_send_type))
-    return MessageSegment.node(nodes)
-
-
-def cleanup_media(media: tuple[PreparedMedia, ...]) -> None:
-    for item in media:
-        if item.is_video and item.item.is_video:
+        if item.is_video and video_send_type == "file":
+            schedule_file_cleanup(item.path)
             continue
         item.path.unlink(missing_ok=True)

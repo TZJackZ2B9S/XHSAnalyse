@@ -93,6 +93,7 @@ async def download_media(
     max_bytes: int,
     retries: int = 3,
     headers: dict[str, str] | None = None,
+    output_logs: bool = False,
 ) -> Path | None:
     """流式下载媒体到缓存目录，超过大小限制时删除半成品。"""
 
@@ -111,6 +112,8 @@ async def download_media(
     for attempt in range(retries):
         total = 0
         try:
+            if output_logs:
+                logger.info(f"[XHSAnalyse] 开始下载媒体（第 {attempt + 1}/{retries} 次，类型 {suffix}）")
             async with client.stream("GET", url, headers=request_headers) as response:
                 response.raise_for_status()
                 content_length_text = response.headers.get("content-length")
@@ -125,6 +128,8 @@ async def download_media(
                             raise ValueError("媒体超过大小上限")
                         await file.write(chunk)
             if total > 0:
+                if output_logs:
+                    logger.info(f"[XHSAnalyse] 媒体下载完成：{total / 1024 / 1024:.1f} MB")
                 return output
             raise ValueError("媒体响应为空")
         except (httpx.HTTPError, OSError, ValueError) as error:

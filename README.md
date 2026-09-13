@@ -1,14 +1,14 @@
-# XHSAnalyse
+<div align="center">
+  <img src="ICON.png" width="128" alt="XHSAnalyse">
 
-GsCore 小红书解析插件。支持分享链接、笔记链接、图片、视频、HDR 和 Live 图，不包含扫码登录。
+  <h1>XHSAnalyse</h1>
+</div>
+
+GsCore 小红书解析插件。支持分享链接、笔记链接、图片、视频、HDR 和 Live 图。
 
 ## 安装
 
-在 GsCore 的 `gsuid_core/plugins/` 目录执行：
-
-```bash
-git clone https://github.com/<your-name>/XHSAnalyse.git
-```
+将本插件目录放入 GsCore 的 `gsuid_core/plugins/` 目录（或通过 WebConsole 安装插件）。
 
 重启 GsCore。Live 图转 JPEG 需要 `ffmpeg`，HEIF 封面另需 `heif-convert`。
 
@@ -28,10 +28,13 @@ xhs帮助
 
 | 配置项 | 说明 |
 | --- | --- |
-| Cookies | 小红书网页 Cookie；无 Cookies 时视频通常最高 720p，有 Cookies 也不保证达到目标画质 |
+| Cookies | 小红书网页 Cookie； |
+| 代理服务器地址 | HTTP/HTTPS 代理地址；留空使用直连 |
 | 自动解析消息中的小红书链接 | 普通消息出现链接时自动解析 |
 | 视频清晰度选择 | `2160p` / `1440p` / `1080p` / `720p`；源视频不足时自动取实际最高画质 |
 | 视频发送方式 | `base64` 兼容性好；`file` 节省内存，但 Bot 端需能访问 Core 同一路径 |
+| 是否开启卡片渲染 | 默认开启；失败时自动发送文案消息，可在配置中关闭 |
+| 卡片渲染精度 | 50%～200%；默认 150%，数值越高越清晰但图片更大、内存占用更高 |
 | 图片优先原图 | 优先还原 CI 原图直链 |
 | 视频优先 HDR | 有 HDR 流时优先选择 |
 | Cookies 失败后无登录回退 | Cookie 失效时重试无登录模式 |
@@ -42,9 +45,9 @@ xhs帮助
 
 ## 说明
 
+- 卡片或文案会作为独立消息发送；单媒体直接发送，多媒体才使用合并转发。
 - 无 Cookies 时分享链接通常只能获取 720p；有 Cookies 时也受源视频实际清晰度限制。
-- 选择 1080p 但源视频只有 720p，会下载 720p；选择 720p 但源视频有 1080p，最多下载 720p。
-- 插件不使用 Puppeteer、Playwright 或 Chromium。
+- 插件不依赖浏览器。
 
 ## 许可
 

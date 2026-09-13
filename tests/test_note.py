@@ -5,6 +5,7 @@ from XHSAnalyse.utils.parse.note import (
     format_timestamp,
     build_ci_image_url,
     extract_note_from_html,
+    extract_author_profile_from_html,
 )
 
 
@@ -88,6 +89,103 @@ def test_collect_media_can_disable_original_image() -> None:
         prefer_original_image=False,
     )
     assert result.media[0].url == "https://sns-webpic.xhscdn.com/1/abc/cover!nd_dft_wgth_webp_3"
+
+
+def test_collect_media_extracts_card_metadata() -> None:
+    result = collect_media(
+        "0123456789abcdef01234567",
+        {
+            "type": "normal",
+            "title": "测试卡片",
+            "desc": "正文 #标签",
+            "user": {
+                "nickname": "作者",
+                "userId": "user-1",
+                "avatar": {"urlDefault": "https://avatar.example/a.jpg"},
+            },
+            "interactInfo": {
+                "likedCount": "15",
+                "commentCount": 16,
+                "collectedCount": "2",
+                "shareCount": 6,
+            },
+            "imageList": [{"urlDefault": "https://img.example/a.jpg"}],
+        },
+        share_url="https://www.xiaohongshu.com/explore/0123456789abcdef01234567",
+    )
+    assert result.liked_count == "15"
+    assert result.comment_count == "16"
+    assert result.collected_count == "2"
+    assert result.share_count == "6"
+    assert result.author_id == "user-1"
+    assert result.author_avatar == "https://avatar.example/a.jpg"
+    assert result.share_url.endswith("01234567")
+
+
+def test_collect_media_extracts_optional_author_profile_stats() -> None:
+    result = collect_media(
+        "0123456789abcdef01234567",
+        {
+            "title": "带作者资料",
+            "user": {"nickname": "作者", "userId": "user-1"},
+            "profile": {
+                "userInfo": {
+                    "follows": "12",
+                    "fans": "3.4万",
+                    "likeAndCollect": "8.9万",
+                }
+            },
+            "imageList": [],
+        },
+    )
+
+    assert result.author_follows == "12"
+    assert result.author_fans == "3.4万"
+    assert result.author_like_and_collect == "8.9万"
+
+
+def test_collect_media_ignores_unavailable_author_profile_stats() -> None:
+    result = collect_media(
+        "0123456789abcdef01234567",
+        {
+            "title": "无作者资料",
+            "user": {"nickname": "作者"},
+            "profile": {"userInfo": {"follows": "-", "fans": "-", "likeAndCollect": "-"}},
+            "imageList": [],
+        },
+    )
+
+    assert result.author_follows == ""
+    assert result.author_fans == ""
+    assert result.author_like_and_collect == ""
+
+
+def test_extract_author_profile_stats() -> None:
+    document = (
+        "<script>window.__INITIAL_STATE__="
+        + json.dumps(
+            {
+                "user": {
+                    "userPageData": {
+                        "basicInfo": {"redId": "4519166676"},
+                        "interactions": [
+                            {"type": "follows", "name": "关注", "count": "10+"},
+                            {"type": "fans", "name": "粉丝", "count": "1千+"},
+                            {"type": "interaction", "name": "获赞与收藏", "count": "1万+"},
+                        ],
+                    }
+                }
+            }
+        )
+        + "</script>"
+    )
+
+    assert extract_author_profile_from_html(document) == {
+        "red_id": "4519166676",
+        "follows": "10+",
+        "fans": "1千+",
+        "like_and_collect": "1万+",
+    }
 
 
 def test_format_timestamp_supports_seconds_and_iso() -> None:
