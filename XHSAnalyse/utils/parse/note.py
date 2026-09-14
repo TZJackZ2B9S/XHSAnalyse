@@ -19,6 +19,7 @@ from .streams import (
     as_text,
     as_array,
     as_object,
+    is_hdr_stream,
     normalize_url,
     select_live_stream,
 )
@@ -244,15 +245,46 @@ def _attach_profile_user(note: dict[str, object], state: dict[str, object]) -> d
 
 
 def _live_stream(image: dict[str, object]) -> object | None:
-    live = as_object(field(image, "livePhoto", "live_photo"))
+    marker = field(image, "livePhoto", "live_photo")
+    if isinstance(marker, bool):
+        if not marker:
+            return None
+        live = None
+    else:
+        live = as_object(marker)
+        if marker is None and not field(image, "livePhotoUrl", "live_photo_url", "liveVideoUrl", "live_video_url"):
+            return None
+        if isinstance(marker, str) and marker.strip().lower() not in {"1", "true", "yes"}:
+            return None
     if live is not None:
         live_media = as_object(field(live, "media"))
         stream = field(live_media, "stream") if live_media is not None else None
         if stream is not None:
             return stream
+        stream = field(live, "stream")
+        if stream is not None:
+            return stream
     media = as_object(field(image, "media"))
     stream = field(media, "stream") if media is not None else None
     return stream if stream is not None else field(image, "stream")
+
+
+def _image_is_hdr(image: dict[str, object], source_url: str) -> bool:
+    """从 UHDR 路径、图片元数据和图片流标记识别 HDR 静态图。"""
+
+    urls = [source_url, *(as_text(field(image, key)) for key in ("url", "urlDefault", "urlPre"))]
+    if any(re.search(r"(?:notes_)?uhdr|hdr", value, re.IGNORECASE) for value in urls if value):
+        return True
+    if is_hdr_stream(image):
+        return True
+    stream = as_object(field(image, "stream"))
+    if stream is not None:
+        for value in stream.values():
+            entries = as_array(value) or [value]
+            if any(is_hdr_stream(entry) for entry in entries):
+                return True
+    info_list = as_array(field(image, "infoList", "info_list")) or []
+    return any(is_hdr_stream(info) for info in info_list)
 
 
 def collect_media(
@@ -288,7 +320,7 @@ def collect_media(
         if live_choice is not None and live_choice.url:
             media.append(MediaItem(url=url, is_live=True, live_url=live_choice.url, is_hdr=live_choice.is_hdr))
         else:
-            media.append(MediaItem(url=url, is_hdr=bool(re.search(r"uhdr|hdr", url, re.IGNORECASE))))
+            media.append(MediaItem(url=url, is_hdr=_image_is_hdr(image, source_url)))
 
     has_main_video = False
     video_quality: str | None = None

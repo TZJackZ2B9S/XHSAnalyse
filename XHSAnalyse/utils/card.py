@@ -24,6 +24,7 @@ from qrcode.exceptions import DataOverflowError
 from gsuid_core.logger import logger
 from gsuid_core.utils.html_render import render_html_to_bytes
 
+from .media.image import is_jpeg, ensure_jpeg
 from .parse.models import NoteResult
 
 _WIDTH = 720
@@ -485,7 +486,15 @@ def _template(
         if location
         else ""
     )
-    media_label = "图文 · 含实况" if result.has_live_photo else ("视频笔记" if result.type == "video" else "图文笔记")
+    if result.type == "video":
+        media_label = "视频笔记"
+    else:
+        labels = []
+        if result.has_live_photo:
+            labels.append("含实况")
+        if result.has_hdr_image:
+            labels.append("HDR")
+        media_label = f"图文 · {' · '.join(labels)}" if labels else "图文笔记"
     author_id = html.escape(result.author_red_id or result.author_id or result.note_id)
     generated_at = datetime.now(_CHINA_TZ).strftime("%Y-%m-%d %H:%M:%S")
     values = {
@@ -499,7 +508,11 @@ def _template(
         "TAGS": html.escape(_tags(result.desc)),
         "MEDIA_LABEL": media_label,
         "DESC_PREVIEW": html.escape(_description_preview(result.desc)),
-        "MEDIA_META": _video_meta(result) if result.type == "video" else f"共 {media_count} 张",
+        "MEDIA_META": (
+            _video_meta(result)
+            if result.type == "video"
+            else f"共 {media_count} 张{' · HDR' if result.has_hdr_image else ''}"
+        ),
         "LIKED_COUNT": _value(result.liked_count),
         "COMMENT_COUNT": _value(result.comment_count),
         "COLLECTED_COUNT": _value(result.collected_count),
@@ -532,16 +545,23 @@ async def render_note_card(
 
     if not cover_path.is_file():
         return None
+    preview_path = cover_path
+    converted_preview: Path | None = None
     try:
         scale = max(1.0, min(5.0, float(render_scale)))
+        if not await is_jpeg(cover_path):
+            converted_preview = await ensure_jpeg(cover_path)
+            if converted_preview is None:
+                return None
+            preview_path = converted_preview
         avatar_task = _download_avatar(client, result.author_avatar)
-        size_task = asyncio.to_thread(_image_size, cover_path)
+        size_task = asyncio.to_thread(_image_size, preview_path)
         avatar_uri, source_size = await asyncio.gather(avatar_task, size_task)
         card_height, _, _ = _card_geometry(source_size)
         render_scale = scale
         background_task = asyncio.to_thread(
             _build_background,
-            cover_path,
+            preview_path,
             render_scale,
             card_height,
         )
@@ -571,6 +591,9 @@ async def render_note_card(
     except (OSError, ValueError, RuntimeError, DataOverflowError) as error:
         logger.warning(f"[XHSAnalyse] 卡片渲染失败，回退文案消息：{error}")
         return None
+    finally:
+        if converted_preview is not None and converted_preview != cover_path:
+            converted_preview.unlink(missing_ok=True)
 
 
 __all__ = ["render_note_card"]

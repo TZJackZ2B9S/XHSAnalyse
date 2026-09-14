@@ -62,6 +62,7 @@ class XhsSettings:
     render_card: bool
     render_scale: float
     output_logs: bool
+    image_send_type: str = "framework"
 
     @property
     def target_video_height(self) -> int:
@@ -98,6 +99,12 @@ def get_settings() -> XhsSettings:
     video_quality = _str("videoQuality").strip().lower()
     if video_quality not in _VIDEO_HEIGHTS:
         video_quality = "1080p"
+    video_send_type = _str("videoSendType").strip().lower()
+    if video_send_type not in {"base64", "file"}:
+        video_send_type = "base64"
+    image_send_type = _str("imageSendType").strip().lower()
+    if image_send_type not in {"framework", "file"}:
+        image_send_type = "framework"
     return XhsSettings(
         cookie=_str("cookie").strip(),
         proxy=_str("proxy").strip(),
@@ -109,10 +116,11 @@ def get_settings() -> XhsSettings:
         prefer_hdr_video=_bool("preferHdrVideo"),
         fallback_without_cookie=_bool("fallbackWithoutCookie"),
         convert_live_photo=_bool("convertLivePhoto"),
-        video_send_type=_str("videoSendType").strip().lower(),
+        video_send_type=video_send_type,
         render_card=_bool("renderCard"),
         render_scale=_render_scale(_int("renderScale")),
         output_logs=_bool("outputLogs"),
+        image_send_type=image_send_type,
     )
 
 

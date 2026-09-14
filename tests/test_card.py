@@ -142,6 +142,27 @@ def test_video_meta_uses_four_k_and_hdr_label() -> None:
     assert "4K HDR" in rendered
 
 
+def test_image_card_shows_live_and_hdr_labels() -> None:
+    result = NoteResult(
+        note_id="note-live-hdr",
+        title="图文",
+        author="作者",
+        desc="正文",
+        publish_time="",
+        type="image",
+        video_quality=None,
+        media=(
+            MediaItem("https://img.example/live.jpg", is_live=True, live_url="https://video.example/live.mp4"),
+            MediaItem("https://ci.xiaohongshu.com/notes_uhdr/hdr", is_hdr=True),
+        ),
+    )
+
+    rendered = _template(result, 2, "", 1.0)
+
+    assert "图文 · 含实况 · HDR" in rendered
+    assert "共 2 张 · HDR" in rendered
+
+
 def test_card_shows_ip_location_next_to_publish_time() -> None:
     result = NoteResult(
         note_id="note-location",

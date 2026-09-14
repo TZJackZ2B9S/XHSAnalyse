@@ -38,7 +38,7 @@ class PreparedMedia:
 
 
 def local_file_uri(path: Path) -> str:
-    """生成带主机名的 file URI，避免部分适配器补成 https。"""
+    """生成带主机名的本地 file URI，供 Bot 端按原始媒体协议读取。"""
 
     return f"file://{_LOCAL_FILE_HOST}{path.as_uri().removeprefix('file://')}"
 
@@ -52,7 +52,7 @@ async def _download_single(
     settings: XhsSettings,
 ) -> PreparedMedia | None:
     is_video = item.is_video
-    suffix = ".mp4" if is_video else ".jpg"
+    suffix = ".mp4" if is_video else ".jpg" if item.is_live else ".heic" if item.is_hdr else ".jpg"
     cache_url = f"{item.url}|{item.live_url}" if item.is_live else item.url
     filename = media_filename(result.title, result.author, index, total, cache_url, suffix)
     target = await download_media(
@@ -94,7 +94,7 @@ async def _download_single(
                 return None
             return PreparedMedia(output, item, index, False)
 
-        if not is_video:
+        if not is_video and not item.is_hdr:
             jpeg_path = await ensure_jpeg(target)
             if jpeg_path is None:
                 logger.warning(f"[XHSAnalyse] 图片转码失败：{item.url}")
@@ -144,12 +144,21 @@ async def prepare_media(
     return tuple(item for item in prepared if item is not None)
 
 
-def media_to_message(media: PreparedMedia, *, video_send_type: str) -> Message:
+def media_to_message(
+    media: PreparedMedia,
+    *,
+    video_send_type: str,
+    image_send_type: str = "framework",
+) -> Message:
     if media.is_video and video_send_type == "file":
         schedule_file_cleanup(media.path)
-        return Message(type="video", data=local_file_uri(media.path))
+        return MessageSegment.video(local_file_uri(media.path))
     if media.is_video:
         return MessageSegment.video(media.path)
+    if image_send_type == "file":
+        # Core 支持原生透传 image + file://，因此无需经过通用 file 段。
+        # 这样单图和合并转发都保持图片语义，同时保留 HEIF/HDR/Live 原文件。
+        return MessageSegment.image(local_file_uri(media.path))
     return MessageSegment.image(media.path)
 
 
@@ -193,12 +202,26 @@ def build_media_message(
     media: tuple[PreparedMedia, ...],
     *,
     video_send_type: str = "base64",
+    image_send_type: str = "framework",
 ) -> Message:
     """构建单条媒体消息或合并转发消息。"""
 
     if len(media) == 1:
-        return media_to_message(media[0], video_send_type=video_send_type)
-    return MessageSegment.node([media_to_message(item, video_send_type=video_send_type) for item in media])
+        return media_to_message(
+            media[0],
+            video_send_type=video_send_type,
+            image_send_type=image_send_type,
+        )
+    return MessageSegment.node(
+        [
+            media_to_message(
+                item,
+                video_send_type=video_send_type,
+                image_send_type=image_send_type,
+            )
+            for item in media
+        ]
+    )
 
 
 def select_media_for_delivery(
@@ -213,15 +236,24 @@ def select_media_for_delivery(
     return videos or media
 
 
-def cleanup_media(media: tuple[PreparedMedia, ...], *, video_send_type: str = "base64") -> None:
+def cleanup_media(
+    media: tuple[PreparedMedia, ...],
+    *,
+    video_send_type: str = "base64",
+    image_send_type: str = "framework",
+) -> None:
     """清理本次处理产生的媒体文件。
 
-    ``file`` 视频需要等待适配器读取 ``file://`` 路径，由
-    :func:`schedule_file_cleanup` 延迟删除；其余媒体在发送完成后即可删除。
+    ``file`` 模式的媒体需要等待适配器从 ``file://`` 路径读取文件。Core
+    的 ``Bot.send`` 只负责将消息放入异步发送队列，调用返回时适配器可能
+    尚未读取文件，因此图片和视频都通过 :func:`schedule_file_cleanup`
+    延迟删除；其余媒体在发送入队后即可删除。
     """
 
     for item in media:
-        if item.is_video and video_send_type == "file":
+        if (item.is_video and video_send_type == "file") or (
+            not item.is_video and image_send_type == "file"
+        ):
             schedule_file_cleanup(item.path)
-            continue
-        item.path.unlink(missing_ok=True)
+        else:
+            item.path.unlink(missing_ok=True)

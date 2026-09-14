@@ -198,6 +198,7 @@ async def _handle_urls(
             build_media_message(
                 delivery_media,
                 video_send_type=settings.video_send_type,
+                image_send_type=settings.image_send_type,
             )
         )
         return True
@@ -207,7 +208,11 @@ async def _handle_urls(
             await bot.send(str(error))
         return False
     finally:
-        cleanup_media(media, video_send_type=settings.video_send_type)
+        cleanup_media(
+            media,
+            video_send_type=settings.video_send_type,
+            image_send_type=settings.image_send_type,
+        )
         await bot.unsend(processing_ids)
         await _release_processing(ev.user_id)
 

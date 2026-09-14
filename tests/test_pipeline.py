@@ -54,6 +54,38 @@ def test_media_download_passes_cookie_to_cdn(monkeypatch, tmp_path: Path) -> Non
     assert calls[0]["headers"] == {"Cookie": "sid=secret"}
 
 
+def test_hdr_image_keeps_original_heif_payload(monkeypatch, tmp_path: Path) -> None:
+    async def fake_download(client, url, **kwargs):
+        raw = tmp_path / "raw.heic"
+        raw.write_bytes(b"\x00\x00heif-uhdr-payload")
+        return raw
+
+    monkeypatch.setattr(media_pipeline, "download_media", fake_download)
+    settings = XhsSettings(
+        cookie="",
+        proxy="",
+        detect_links=True,
+        video_quality="1080p",
+        max_media_size=1024,
+        fetch_retries=1,
+        prefer_original_image=True,
+        prefer_hdr_video=True,
+        fallback_without_cookie=True,
+        convert_live_photo=True,
+        video_send_type="base64",
+        render_card=False,
+        render_scale=1.0,
+        output_logs=False,
+    )
+    item = MediaItem("https://ci.xiaohongshu.com/notes_uhdr/image", is_hdr=True)
+    result = asyncio.run(media_pipeline._download_single(None, item, 0, 1, _result(), settings))
+
+    assert result is not None
+    assert result.path.suffix == ".heic"
+    assert result.path.read_bytes().startswith(b"\x00\x00heif")
+    result.path.unlink(missing_ok=True)
+
+
 def _result() -> NoteResult:
     return NoteResult(
         note_id="0123456789abcdef01234567",
@@ -110,6 +142,37 @@ def test_multiple_media_message_contains_only_all_media(tmp_path: Path) -> None:
     assert forward.type == "node"
     assert isinstance(forward.data, list)
     assert [item.type for item in forward.data] == ["image", "video"]
+
+
+def test_file_mode_uses_native_image_local_uri_for_single_image(tmp_path: Path) -> None:
+    image = tmp_path / "cover.heic"
+    image.write_bytes(b"hdr")
+    media = (PreparedMedia(image, MediaItem("https://img/cover.heic", is_hdr=True), 0, False),)
+
+    message = build_media_message(media, image_send_type="file")
+
+    assert message.type == "image"
+    assert str(message.data).startswith("file://localhost/")
+    assert "base64://" not in str(message.data)
+
+
+def test_file_mode_uses_local_image_nodes_for_forward(tmp_path: Path) -> None:
+    first = tmp_path / "one.heic"
+    second = tmp_path / "two.jpg"
+    first.write_bytes(b"hdr")
+    second.write_bytes(b"image")
+    media = (
+        PreparedMedia(first, MediaItem("https://img/one.heic", is_hdr=True), 0, False),
+        PreparedMedia(second, MediaItem("https://img/two.jpg"), 1, False),
+    )
+
+    forward = build_media_message(media, image_send_type="file")
+
+    assert forward.type == "node"
+    assert isinstance(forward.data, list)
+    assert [item.type for item in forward.data] == ["image", "image"]
+    assert all("file://localhost/" in str(item.data) for item in forward.data)
+    assert all("base64://" not in str(item.data) for item in forward.data)
 
 
 def test_video_delivery_sends_video_without_cover(tmp_path: Path) -> None:
@@ -223,8 +286,26 @@ def test_cleanup_media_keeps_file_sent_video(tmp_path: Path) -> None:
     assert video.exists()
 
 
+def test_cleanup_media_keeps_file_sent_image(tmp_path: Path) -> None:
+    image = tmp_path / "cover.heic"
+    image.write_bytes(b"image")
+    media = (PreparedMedia(image, _result().media[0], 0, False),)
+
+    asyncio.run(_cleanup_file_image_media(media))
+
+    assert image.exists()
+
+
 async def _cleanup_file_media(media: tuple[PreparedMedia, ...]) -> None:
     cleanup_media(media, video_send_type="file")
+    await asyncio.sleep(0)
+    for task in list(_cleanup_tasks):
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def _cleanup_file_image_media(media: tuple[PreparedMedia, ...]) -> None:
+    cleanup_media(media, image_send_type="file")
     await asyncio.sleep(0)
     for task in list(_cleanup_tasks):
         task.cancel()

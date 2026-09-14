@@ -65,6 +65,28 @@ def test_collect_media_builds_live_photo() -> None:
     assert result.media[0].live_url == "https://video/live.mp4"
 
 
+def test_collect_media_does_not_treat_non_live_image_stream_as_live() -> None:
+    result = collect_media(
+        "0123456789abcdef01234567",
+        {
+            "type": "normal",
+            "title": "HDR 图片",
+            "user": {"nickname": "作者"},
+            "imageList": [
+                {
+                    "urlDefault": "https://sns-webpic.xhscdn.com/notes_uhdr/cover!nd_dft_wgth_webp_3",
+                    "livePhoto": False,
+                    "stream": {"h265": [{"masterUrl": "https://video/not-live.mp4", "hdrType": 1}]},
+                }
+            ],
+        },
+    )
+
+    assert not result.has_live_photo
+    assert result.has_hdr_image
+    assert result.media[0].is_hdr
+
+
 def test_collect_media_skips_slideshow_video_for_image_set() -> None:
     result = collect_media(
         "0123456789abcdef01234567",

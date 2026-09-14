@@ -46,6 +46,16 @@ CONFIG_DEFAULT: dict[str, GSC] = {
         data="base64",
         options=["base64", "file"],
     ),
+    "imageSendType": GsStrConfig(
+        title="图片发送方式",
+        desc=(
+            "framework：跟随 GsCore 当前图片发送配置；"
+            "file：使用 image + file:// 原生协议发送，保留 Live 图和 HDR 图片原始格式，"
+            "并避免大图 Base64 撑断适配器连接。卡片仍按图片消息发送。"
+        ),
+        data="framework",
+        options=["framework", "file"],
+    ),
     "renderCard": GsBoolConfig(
         title="是否开启卡片渲染",
         desc="发送媒体前生成一张带封面、标题和互动数据的卡片；渲染失败时改为发送文案消息。",
