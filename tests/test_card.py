@@ -181,6 +181,27 @@ def test_author_stats_format_exact_counts_without_plus_suffix() -> None:
     assert _author_count("10+") == ""
 
 
+def test_author_stats_show_no_cookie_mode() -> None:
+    result = NoteResult(
+        note_id="note-no-cookie",
+        title="标题",
+        author="作者",
+        desc="",
+        publish_time="",
+        type="image",
+        video_quality=None,
+        media=(MediaItem("https://img.example/cover.jpg"),),
+    )
+
+    rendered = _author_stats_html(result, no_cookie_mode=True)
+
+    assert "无" in rendered
+    assert "Cookies" in rendered
+    assert "模式" in rendered
+    assert "—" not in rendered
+    assert rendered.count('class="author-stat"') == 3
+
+
 def test_video_card_footer_is_not_labeled_as_image_note() -> None:
     result = NoteResult(
         note_id="note-video",

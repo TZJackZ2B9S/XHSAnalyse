@@ -136,6 +136,7 @@ async def _handle_urls(
                     cover.path,
                     client,
                     render_scale=settings.render_scale,
+                    no_cookie_mode=not settings.cookie or result.cookie_expired,
                 )
                 if card is None:
                     return False

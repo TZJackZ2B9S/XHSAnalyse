@@ -437,13 +437,16 @@ _AUTHOR_STAT_ICONS = {
 }
 
 
-def _author_stats_html(result: NoteResult) -> str:
-    values = (
-        ("关注", result.author_follows),
-        ("粉丝", result.author_fans),
-        ("获赞与收藏", result.author_like_and_collect),
-    )
-    items = [(label, _author_count(value) or "—") for label, value in values if value]
+def _author_stats_html(result: NoteResult, *, no_cookie_mode: bool = False) -> str:
+    if no_cookie_mode:
+        items = [("关注", "无"), ("粉丝", "Cookies"), ("获赞与收藏", "模式")]
+    else:
+        values = (
+            ("关注", result.author_follows),
+            ("粉丝", result.author_fans),
+            ("获赞与收藏", result.author_like_and_collect),
+        )
+        items = [(label, _author_count(value) or "—") for label, value in values if value]
     rendered = [
         f'<span class="author-stat"><span class="author-stat-head">'
         f'<span class="author-stat-icon">{_AUTHOR_STAT_ICONS[label]}</span>'
@@ -590,6 +593,8 @@ def _template(
     avatar_uri: str,
     render_scale: float,
     card_height: int = _HEIGHT,
+    *,
+    no_cookie_mode: bool = False,
 ) -> str:
     title = html.escape(result.title or "未知标题")
     author = html.escape(result.author or "未知作者")
@@ -634,7 +639,7 @@ def _template(
         "COLLECTED_COUNT": _value(result.collected_count),
         "SHARE_COUNT": _value(result.share_count),
         "AUTHOR_ID": author_id,
-        "AUTHOR_STATS": _author_stats_html(result),
+        "AUTHOR_STATS": _author_stats_html(result, no_cookie_mode=no_cookie_mode),
         "GENERATED_AT": generated_at,
         "QR": _qr_html(result.share_url, render_scale),
         "CARD_HEIGHT": str(card_height),
@@ -656,6 +661,7 @@ async def render_note_card(
     client: httpx.AsyncClient | None = None,
     *,
     render_scale: float = 1.0,
+    no_cookie_mode: bool = False,
 ) -> bytes | None:
     """渲染卡片；输入图片损坏或渲染器不可用时返回 ``None``。"""
 
@@ -690,6 +696,7 @@ async def render_note_card(
             avatar_uri,
             render_scale,
             card_height,
+            no_cookie_mode=no_cookie_mode,
         )
         background, template = await asyncio.gather(background_task, template_task)
         template = template.replace("{{BACKGROUND}}", _data_uri(background))
