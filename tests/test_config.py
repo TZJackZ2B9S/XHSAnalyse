@@ -10,6 +10,9 @@ def test_card_and_proxy_settings_are_exposed_in_gscore_config() -> None:
     assert "renderCompression" not in CONFIG_DEFAULT
     assert CONFIG_DEFAULT["proxy"].title == "代理服务器地址"
     assert CONFIG_DEFAULT["proxy"].data == ""
+    assert CONFIG_DEFAULT["imageSendType"].title == "图片发送方式"
+    assert CONFIG_DEFAULT["imageSendType"].data == "framework"
+    assert CONFIG_DEFAULT["imageSendType"].options == ["framework", "file"]
 
 
 def test_render_scale_is_limited_to_100_through_500_percent() -> None:
