@@ -85,6 +85,7 @@ def _extract_initial_state(document: str) -> dict[str, object] | None:
         .replace(":undefined", ":null")
         .replace(": undefined", ": null")
         .replace("new Map([])", "{}")
+        .replace("new Set([])", "{}")
     )
     try:
         state = json.loads(payload)
