@@ -10,18 +10,20 @@ import math
 import base64
 import asyncio
 from io import BytesIO
+from typing import NamedTuple
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from functools import lru_cache
 
 import httpx
 import qrcode
-from PIL import Image, ImageDraw, ImageChops, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter, ImageEnhance
 from qrcode.constants import ERROR_CORRECT_M
 from qrcode.image.pil import PilImage
 from qrcode.exceptions import DataOverflowError
 
 from gsuid_core.logger import logger
+from gsuid_core.utils.fonts.fonts import core_font
 from gsuid_core.utils.html_render import render_html_to_bytes
 
 from .media.image import is_jpeg, ensure_jpeg
@@ -32,16 +34,23 @@ _HEIGHT = 1549
 _MIN_CARD_HEIGHT = 1080
 _COVER_TOP = 260
 _FOOTER_SPACE = 430
-_TOP_CLEAR_START = 238
-_TOP_CLEAR_END = 338
-_BOTTOM_CLEAR_START = 1010
-_BOTTOM_CLEAR_END = 1248
-# 白色渐变带：让文字附近的上下区域更早变亮、整体更白，
-# 使深色文字更易辨认；与封面自身的渐隐遮罩相互独立。
-_VEIL_TOP_START = 210
-_VEIL_TOP_END = 300
-_VEIL_BOTTOM_START = 980
-_VEIL_BOTTOM_END = 1140
+_BODY_TOP = 120
+_TITLE_MAX_WIDTH = 620
+_TITLE_FONT_SIZE = 36
+_TITLE_LINE_HEIGHT = 1.22
+_TAGS_GAP = 17
+_TAG_LINE_HEIGHT = 32
+_COVER_OVERLAY = 12
+_MIN_COVER_TOP = 180
+_FOOTER_SPACE_WITH_STATS = 341
+_FOOTER_SPACE_PLAIN = 312
+_COVER_FADE_LEAD = 36
+_COVER_FADE_IN = 90
+_COVER_FADE_OUT = 90
+_VEIL_TOP_PEAK = 145.0
+_VEIL_TOP_FADE = 220
+_VEIL_BOTTOM_PEAK = 145.0
+_VEIL_BOTTOM_RAMP = 220
 _CORNER_RADIUS = 24
 _CHINA_TZ = timezone(timedelta(hours=8))
 _TEMPLATE_PATH = Path(__file__).with_name("card_template.html")
@@ -68,15 +77,91 @@ def _crop_to_card(source: Image.Image, width: int, height: int) -> Image.Image:
     return source.crop(box).resize((target_width, target_height), Image.Resampling.LANCZOS).convert("RGBA")
 
 
-def _card_geometry(source_size: tuple[int, int]) -> tuple[int, int, int]:
-    """返回逻辑像素下的卡片高度、封面高度和封面顶部位置。"""
+class _CardLayout(NamedTuple):
+    """一张卡片的逻辑像素几何，随标题行数和底部信息块变化。"""
 
+    card_height: int
+    cover_height: int
+    cover_top: int
+    top_hold: int
+    footer_space: int
+
+
+@lru_cache(maxsize=8)
+def _title_font() -> ImageFont.FreeTypeFont:
+    return core_font(_TITLE_FONT_SIZE, 700.0)
+
+
+def _wrap_text(text: str, max_width: int) -> list[str]:
+    """按卡片标题宽度折行，中文按字、西文尽量在空格处断开。"""
+
+    font = _title_font()
+    lines: list[str] = []
+    current = ""
+    for char in text:
+        trial = current + char
+        if font.getlength(trial) <= max_width:
+            current = trial
+            continue
+        if current:
+            break_at = current.rfind(" ")
+            if break_at > 0:
+                lines.append(current[:break_at])
+                current = current[break_at + 1 :] + char
+            else:
+                lines.append(current)
+                current = char
+            continue
+        lines.append(char)
+        current = ""
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def _title_line_count(title: str) -> int:
+    return max(1, len(_wrap_text(title or "未知标题", _TITLE_MAX_WIDTH)))
+
+
+def _top_text_end(title: str) -> int:
+    """标题和 tag 的下沿；类型 pill 不参与封面顶部安全区计算。"""
+
+    title_height = _title_line_count(title) * round(_TITLE_FONT_SIZE * _TITLE_LINE_HEIGHT)
+    return _BODY_TOP + title_height + _TAGS_GAP + _TAG_LINE_HEIGHT
+
+
+def _footer_space_for(result: NoteResult) -> int:
+    if result.author_follows or result.author_fans or result.author_like_and_collect:
+        return _FOOTER_SPACE_WITH_STATS
+    return _FOOTER_SPACE_PLAIN
+
+
+def _cover_height_for(source_size: tuple[int, int]) -> int:
     source_width, source_height = source_size
     if source_width <= 0 or source_height <= 0:
         raise ValueError("封面尺寸无效")
-    cover_height = max(1, round(_WIDTH * source_height / source_width))
-    card_height = max(_MIN_CARD_HEIGHT, _COVER_TOP + cover_height + _FOOTER_SPACE)
-    return card_height, cover_height, _COVER_TOP
+    return max(1, round(_WIDTH * source_height / source_width))
+
+
+def _card_layout(source_size: tuple[int, int], result: NoteResult | None = None) -> _CardLayout:
+    cover_height = _cover_height_for(source_size)
+    if result is None:
+        cover_top = _COVER_TOP
+        footer_space = _FOOTER_SPACE
+        top_hold = _COVER_TOP + 48
+    else:
+        top_hold = _top_text_end(result.title)
+        cover_top = max(_MIN_COVER_TOP, top_hold - _TAG_LINE_HEIGHT - _COVER_OVERLAY)
+        footer_space = _footer_space_for(result)
+    card_height = max(_MIN_CARD_HEIGHT, cover_top + cover_height + footer_space)
+    return _CardLayout(card_height, cover_height, cover_top, top_hold, footer_space)
+
+
+def _card_geometry(source_size: tuple[int, int]) -> tuple[int, int, int]:
+    """返回逻辑像素下的卡片高度、封面高度和封面顶部位置。"""
+
+    layout = _card_layout(source_size)
+    return layout.card_height, layout.cover_height, layout.cover_top
 
 
 def _cover_mask(width: int, height: int) -> Image.Image:
@@ -84,54 +169,71 @@ def _cover_mask(width: int, height: int) -> Image.Image:
 
     mask = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(mask)
+    fade_ratio = 0.24
     for y in range(height):
         position = y / max(1, height - 1)
-        if position < 0.24:
-            alpha = _smoothstep(position / 0.24)
-        elif position <= 0.72:
+        if position < fade_ratio:
+            alpha = _smoothstep(position / fade_ratio)
+        elif position <= 1.0 - fade_ratio:
             alpha = 1.0
         else:
-            alpha = 1.0 - _smoothstep((position - 0.72) / 0.28)
+            alpha = 1.0 - _smoothstep((position - (1.0 - fade_ratio)) / fade_ratio)
         draw.line((0, y, width, y), fill=round(alpha * 255))
     return mask
 
 
-def _foreground_mask(width: int, height: int) -> Image.Image:
-    scale_y = height / _HEIGHT
+def _foreground_mask(
+    width: int,
+    height: int,
+    cover_top: int,
+    cover_height: int,
+) -> Image.Image:
+    """封面显影随封面位置走，不再按固定 1549 高度拉伸。"""
+
     mask = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(mask)
+    fade_in_start = cover_top - _COVER_FADE_LEAD
+    fade_in_end = cover_top + _COVER_FADE_IN
+    cover_bottom = cover_top + cover_height
+    fade_out_start = cover_bottom - _COVER_FADE_OUT
+    fade_out_end = cover_bottom + _COVER_FADE_LEAD
     for y in range(height):
-        logical_y = y / scale_y
-        if logical_y < _TOP_CLEAR_START:
+        if y < fade_in_start:
             alpha = 0.0
-        elif logical_y < _TOP_CLEAR_END:
-            alpha = _smoothstep((logical_y - _TOP_CLEAR_START) / (_TOP_CLEAR_END - _TOP_CLEAR_START))
-        elif logical_y <= _BOTTOM_CLEAR_START:
+        elif y < fade_in_end:
+            alpha = _smoothstep((y - fade_in_start) / max(1, fade_in_end - fade_in_start))
+        elif y <= fade_out_start:
             alpha = 1.0
-        elif logical_y < _BOTTOM_CLEAR_END:
-            alpha = 1.0 - _smoothstep((logical_y - _BOTTOM_CLEAR_START) / (_BOTTOM_CLEAR_END - _BOTTOM_CLEAR_START))
+        elif y < fade_out_end:
+            alpha = 1.0 - _smoothstep((y - fade_out_start) / max(1, fade_out_end - fade_out_start))
         else:
             alpha = 0.0
         draw.line((0, y, width, y), fill=round(alpha * 255))
     return mask
 
 
-def _color_veil(width: int, height: int) -> Image.Image:
-    scale_y = height / _HEIGHT
+def _color_veil(width: int, height: int, top_hold: int, footer_top: int) -> Image.Image:
+    """灰字所在区域保持近白，中间把封面颜色露出来。"""
+
     veil = Image.new("RGBA", (width, height), (255, 255, 255, 0))
     draw = ImageDraw.Draw(veil)
+    top_fade_end = top_hold + _VEIL_TOP_FADE
+    bottom_full = footer_top + 18
+    bottom_start = footer_top - _VEIL_BOTTOM_RAMP
     for y in range(height):
-        logical_y = y / scale_y
-        if logical_y < _VEIL_TOP_START:
-            alpha = 215 - 55 * _smoothstep(logical_y / _VEIL_TOP_START)
-        elif logical_y < _VEIL_TOP_END:
-            alpha = 160 * (1.0 - _smoothstep((logical_y - _VEIL_TOP_START) / (_VEIL_TOP_END - _VEIL_TOP_START)))
-        elif logical_y > _VEIL_BOTTOM_END:
-            alpha = 130 + (255 - 130) * _smoothstep((logical_y - _VEIL_BOTTOM_END) / (_HEIGHT - _VEIL_BOTTOM_END))
-        elif logical_y > _VEIL_BOTTOM_START:
-            alpha = 130 * _smoothstep((logical_y - _VEIL_BOTTOM_START) / (_VEIL_BOTTOM_END - _VEIL_BOTTOM_START))
+        if y <= top_hold:
+            alpha = _VEIL_TOP_PEAK
+        elif y < top_fade_end:
+            alpha = _VEIL_TOP_PEAK * (
+                1.0 - _smoothstep((y - top_hold) / max(1, top_fade_end - top_hold))
+            )
         else:
-            alpha = 0
+            alpha = 0.0
+        if y >= bottom_full:
+            alpha = max(alpha, _VEIL_BOTTOM_PEAK)
+        elif y > bottom_start:
+            ramp = _smoothstep((y - bottom_start) / max(1, bottom_full - bottom_start))
+            alpha = max(alpha, _VEIL_BOTTOM_PEAK * ramp)
         draw.line((0, y, width, y), fill=(255, 255, 255, round(alpha)))
     return veil
 
@@ -140,14 +242,17 @@ def _build_background(
     path: Path,
     render_scale: float,
     card_height: int | None = None,
+    layout: _CardLayout | None = None,
 ) -> bytes:
     width = max(1, round(_WIDTH * render_scale))
     source = Image.open(path).convert("RGB")
-    resolved_height, cover_height, cover_top = _card_geometry(source.size)
-    logical_height = card_height or resolved_height
+    resolved = layout or _card_layout(source.size)
+    logical_height = card_height or resolved.card_height
     height = max(1, round(logical_height * render_scale))
-    cover_height = max(1, round(cover_height * render_scale))
-    cover_top = round(cover_top * render_scale)
+    cover_height = max(1, round(resolved.cover_height * render_scale))
+    cover_top = round(resolved.cover_top * render_scale)
+    top_hold = round(resolved.top_hold * render_scale)
+    footer_top = height - round(resolved.footer_space * render_scale)
     ambient = _crop_to_card(source, width, height).filter(ImageFilter.GaussianBlur(76 * render_scale))
     ambient = ImageEnhance.Color(ambient).enhance(1.10)
     ambient = ImageEnhance.Contrast(ambient).enhance(0.96)
@@ -156,9 +261,14 @@ def _build_background(
     cover_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     cover.putalpha(_cover_mask(width, cover_height))
     cover_layer.alpha_composite(cover, (0, cover_top))
-    cover_layer.putalpha(ImageChops.multiply(cover_layer.getchannel("A"), _foreground_mask(width, height)))
+    cover_layer.putalpha(
+        ImageChops.multiply(
+            cover_layer.getchannel("A"),
+            _foreground_mask(width, height, cover_top, cover_height),
+        )
+    )
     result = Image.alpha_composite(ambient, cover_layer)
-    result = Image.alpha_composite(result, _color_veil(width, height)).convert("RGB")
+    result = Image.alpha_composite(result, _color_veil(width, height, top_hold, footer_top)).convert("RGB")
     output = BytesIO()
     # 保留完整像素数据；卡片尺寸本身受控，不额外做 PNG 压缩。
     result.save(output, format="PNG", optimize=False)
@@ -563,13 +673,15 @@ async def render_note_card(
         avatar_task = _download_avatar(client, result.author_avatar)
         size_task = asyncio.to_thread(_image_size, preview_path)
         avatar_uri, source_size = await asyncio.gather(avatar_task, size_task)
-        card_height, _, _ = _card_geometry(source_size)
+        layout = _card_layout(source_size, result)
+        card_height = layout.card_height
         render_scale = scale
         background_task = asyncio.to_thread(
             _build_background,
             preview_path,
             render_scale,
             card_height,
+            layout,
         )
         template_task = asyncio.to_thread(
             _template,

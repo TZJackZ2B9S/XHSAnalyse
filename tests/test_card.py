@@ -5,11 +5,20 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from XHSAnalyse.utils.card import (
+    _VEIL_TOP_FADE,
+    _VEIL_TOP_PEAK,
+    _VEIL_BOTTOM_PEAK,
+    _VEIL_BOTTOM_RAMP,
     _template,
+    _cover_mask,
+    _card_layout,
     _author_count,
+    _top_text_end,
     _card_geometry,
     _live_icon_uri,
+    _foreground_mask,
     _build_background,
+    _title_line_count,
     _author_stats_html,
     _apply_card_corners,
     _crop_rendered_card,
@@ -37,6 +46,75 @@ def test_card_geometry_keeps_complete_horizontal_cover() -> None:
     assert cover_height == 360
     assert cover_top == 260
     assert card_height == 1080
+
+
+def test_title_line_count_matches_card_width() -> None:
+    assert _title_line_count("渐变对比测试") == 1
+    assert _title_line_count("渐变对比：图片渐变开始处再快一点变白") == 2
+    long_title = (
+        "这是一条特别长的笔记标题用来测试两行甚至三行标题时"
+        "卡片顶部区域会不会和封面发生重叠的情况"
+    )
+    assert _title_line_count(long_title) == 3
+
+
+def test_card_layout_grows_with_title_lines() -> None:
+    short = _note("短标题")
+    long = _note(
+        "这是一条特别长的笔记标题用来测试两行甚至三行标题时"
+        "卡片顶部区域会不会和封面发生重叠的情况"
+    )
+    short_layout = _card_layout((1080, 1440), short)
+    long_layout = _card_layout((1080, 1440), long)
+
+    assert _top_text_end(short.title) < _top_text_end(long.title)
+    assert short_layout.cover_top < long_layout.cover_top
+    assert short_layout.card_height < long_layout.card_height
+    assert short_layout.footer_space == long_layout.footer_space
+
+
+def test_card_layout_shrinks_footer_without_author_stats() -> None:
+    with_stats = _note("短标题")
+    without_stats = _note("短标题", author_follows="", author_fans="", author_like_and_collect="")
+    taller = _card_layout((1080, 1440), with_stats)
+    shorter = _card_layout((1080, 1440), without_stats)
+
+    assert shorter.footer_space < taller.footer_space
+    assert shorter.card_height < taller.card_height
+
+
+def test_card_cover_and_veil_transitions_are_symmetric() -> None:
+    cover_mask = _cover_mask(1, 101)
+    assert all(
+        cover_mask.getpixel((0, row)) == cover_mask.getpixel((0, 100 - row))
+        for row in range(51)
+    )
+
+    foreground = _foreground_mask(1, 400, 100, 200)
+    assert all(
+        foreground.getpixel((0, 64 + offset)) == foreground.getpixel((0, 336 - offset))
+        for offset in range(127)
+    )
+    assert _VEIL_TOP_PEAK == _VEIL_BOTTOM_PEAK
+    assert _VEIL_TOP_FADE == _VEIL_BOTTOM_RAMP
+
+
+def _note(title: str, **kwargs: str) -> NoteResult:
+    values = dict(
+        note_id="note-layout",
+        title=title,
+        author="作者",
+        desc="正文 #标签",
+        publish_time="2026-09-16 12:00",
+        type="image",
+        video_quality=None,
+        media=(MediaItem("https://img.example/cover.jpg"),),
+        author_follows="123",
+        author_fans="4567",
+        author_like_and_collect="89万",
+    )
+    values.update(kwargs)
+    return NoteResult(**values)
 
 
 def test_live_icon_render_scale_produces_high_resolution_asset() -> None:
