@@ -36,6 +36,12 @@ _TOP_CLEAR_START = 238
 _TOP_CLEAR_END = 338
 _BOTTOM_CLEAR_START = 1010
 _BOTTOM_CLEAR_END = 1248
+# 白色渐变带：让文字附近的上下区域更早变亮、整体更白，
+# 使深色文字更易辨认；与封面自身的渐隐遮罩相互独立。
+_VEIL_TOP_START = 210
+_VEIL_TOP_END = 300
+_VEIL_BOTTOM_START = 980
+_VEIL_BOTTOM_END = 1140
 _CORNER_RADIUS = 24
 _CHINA_TZ = timezone(timedelta(hours=8))
 _TEMPLATE_PATH = Path(__file__).with_name("card_template.html")
@@ -116,14 +122,14 @@ def _color_veil(width: int, height: int) -> Image.Image:
     draw = ImageDraw.Draw(veil)
     for y in range(height):
         logical_y = y / scale_y
-        if logical_y < _TOP_CLEAR_START:
-            alpha = 170 - 38 * _smoothstep(logical_y / _TOP_CLEAR_START)
-        elif logical_y < _TOP_CLEAR_END:
-            alpha = 132 * (1.0 - _smoothstep((logical_y - _TOP_CLEAR_START) / (_TOP_CLEAR_END - _TOP_CLEAR_START)))
-        elif logical_y > _BOTTOM_CLEAR_END:
-            alpha = 110 + (245 - 110) * _smoothstep((logical_y - _BOTTOM_CLEAR_END) / (_HEIGHT - _BOTTOM_CLEAR_END))
-        elif logical_y > _BOTTOM_CLEAR_START:
-            alpha = 110 * _smoothstep((logical_y - _BOTTOM_CLEAR_START) / (_BOTTOM_CLEAR_END - _BOTTOM_CLEAR_START))
+        if logical_y < _VEIL_TOP_START:
+            alpha = 215 - 55 * _smoothstep(logical_y / _VEIL_TOP_START)
+        elif logical_y < _VEIL_TOP_END:
+            alpha = 160 * (1.0 - _smoothstep((logical_y - _VEIL_TOP_START) / (_VEIL_TOP_END - _VEIL_TOP_START)))
+        elif logical_y > _VEIL_BOTTOM_END:
+            alpha = 130 + (255 - 130) * _smoothstep((logical_y - _VEIL_BOTTOM_END) / (_HEIGHT - _VEIL_BOTTOM_END))
+        elif logical_y > _VEIL_BOTTOM_START:
+            alpha = 130 * _smoothstep((logical_y - _VEIL_BOTTOM_START) / (_VEIL_BOTTOM_END - _VEIL_BOTTOM_START))
         else:
             alpha = 0
         draw.line((0, y, width, y), fill=(255, 255, 255, round(alpha)))
