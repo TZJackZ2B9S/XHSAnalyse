@@ -54,6 +54,10 @@ rn帮助
 - 无 Cookies 时分享链接通常只能获取 720p；有 Cookies 时也受源视频实际清晰度限制。
 - 插件不依赖浏览器。
 
+## 致谢
+
+- 卡片 UI 设计参考自 [karin-plugin-kkk](https://github.com/ikenxuan/karin-plugin-kkk)。
+
 ## 许可
 
 MIT
