@@ -8,9 +8,33 @@ GsCore 小红书解析插件。支持分享链接、笔记链接、图片、视�
 
 ## 安装
 
-将本插件目录放入 GsCore 的 `gsuid_core/plugins/` 目录（或通过 WebConsole 安装插件）。
+在 GsCore 的 `gsuid_core/plugins/` 目录执行：
 
-重启 GsCore。Live 图转 JPEG 需要 `ffmpeg`，HEIF 封面另需 `heif-convert`。
+```bash
+git clone --depth 1 https://github.com/TZJackZ2B9S/XHSAnalyse.git XHSAnalyse
+```
+
+重启 GsCore。也可以直接在 WebConsole 的插件页安装，或把仓库下载后解压到 `gsuid_core/plugins/XHSAnalyse`。
+
+Live 图转 JPEG 需要 `ffmpeg`，HEIF 封面另需 `heif-convert`。缺少时插件仍可加载，只有对应功能不可用。
+
+Debian/Ubuntu：
+
+```bash
+sudo apt update
+sudo apt install -y ffmpeg libheif-examples
+```
+
+Docker 部署的 GsCore 要在容器内装，宿主机装了容器里也用不到：
+
+```bash
+docker exec -it <容器名> apt update
+docker exec -it <容器名> apt install -y ffmpeg libheif-examples
+```
+
+容器重启后依然有效；重建容器则需要在镜像的 Dockerfile 里加上 `RUN apt-get update && apt-get install -y ffmpeg libheif-examples`。
+
+部分 HEIF 封面需要较新的 libheif；如果 `heif-convert` 转换失败，可从 [libheif 官方仓库](https://github.com/strukturag/libheif)自行编译安装。
 
 ## 使用
 
