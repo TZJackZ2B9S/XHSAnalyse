@@ -144,17 +144,11 @@ def test_origin_stream_is_used_for_4k_when_signed_candidates_are_720p() -> None:
     note = {
         "video": {
             "consumer": {"originVideoKey": "original.mp4"},
-            "media": {
-                "stream": {
-                    "h264": [_stream("https://video/signed-720.mp4", width=1280, height=720)]
-                }
-            },
+            "media": {"stream": {"h264": [_stream("https://video/signed-720.mp4", width=1280, height=720)]}},
             "mediaV2": json.dumps(
                 {
                     "video": {"width": 3840, "height": 2160},
-                    "stream": {
-                        "h264": [_stream("https://video/signed-720.mp4", width=1280, height=720)]
-                    },
+                    "stream": {"h264": [_stream("https://video/signed-720.mp4", width=1280, height=720)]},
                 }
             ),
         }
