@@ -26,6 +26,7 @@ from gsuid_core.logger import logger
 from gsuid_core.utils.fonts.fonts import core_font
 from gsuid_core.utils.html_render import render_html_to_bytes
 
+from .parse.urls import qr_url
 from .media.image import is_jpeg, ensure_jpeg
 from .parse.models import NoteResult
 
@@ -471,13 +472,11 @@ class _Avatar(NamedTuple):
     mime: str
 
 
-def _rounded_mask(size: int, radius: int) -> Image.Image:
+def _circle_mask(size: int) -> Image.Image:
+    """实心圆遮罩；二维码中心的头像和挖空都用它，和卡片上的圆形头像统一。"""
+
     mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (0, 0, size - 1, size - 1),
-        radius=max(0, min(radius, size // 2)),
-        fill=255,
-    )
+    ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
     return mask
 
 
@@ -535,18 +534,18 @@ def _qr_module_mask(matrix: list[list[bool]], canvas: int) -> Image.Image:
 
 
 def _qr_avatar_layer(avatar: _Avatar, canvas: int) -> tuple[Image.Image, Image.Image]:
-    """返回头像图层与需要挖空的圆角遮罩。"""
+    """返回头像图层与需要挖空的圆形遮罩。"""
 
     size, margin, cut = _qr_avatar_geometry(canvas)
     cutout = Image.new("L", (canvas, canvas), 0)
     cutout.paste(
         255,
         ((canvas - cut) // 2, (canvas - cut) // 2),
-        _rounded_mask(cut, int(cut * 0.2)),
+        _circle_mask(cut),
     )
     source = Image.open(BytesIO(avatar.data)).convert("RGBA")
     source = source.resize((size, size), Image.Resampling.LANCZOS)
-    source.putalpha(_rounded_mask(size, int(size * 0.2)))
+    source.putalpha(_circle_mask(size))
     layer = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
     layer.alpha_composite(source, ((canvas - size) // 2, (canvas - size) // 2))
     return layer, cutout
@@ -584,7 +583,7 @@ def _qr_png(value: str, render_scale: float, avatar: _Avatar | None) -> bytes:
 def _qr_html(value: str, render_scale: float, avatar: _Avatar | None) -> str:
     if not value:
         return '<div class="qr-placeholder"></div>'
-    return f'<img class="qr" src="{_data_uri(_qr_png(value, render_scale, avatar))}">'
+    return f'<img class="qr" src="{_data_uri(_qr_png(qr_url(value), render_scale, avatar))}">'
 
 
 def _tags(desc: str) -> str:

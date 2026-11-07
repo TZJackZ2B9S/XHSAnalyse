@@ -71,6 +71,26 @@ def extract_note_urls(message: str) -> tuple[str, ...]:
     return tuple(url for url in extract_urls(message) if is_note_link(url))
 
 
+# 二维码只需要这两个参数就能打开笔记，其余都是分享链路上的埋点。
+_QR_QUERY_KEEP = frozenset({"xsec_token", "xsec_source"})
+
+
+def qr_url(url: str) -> str:
+    """把笔记链接压成二维码用的短形态：去掉埋点，只留 xsec_token/xsec_source。
+
+    卡片里拿到的分享链接常带十几个 query 参数（``share_id``、``track_code``、
+    ``apptime`` 之类），400+ 字符会让二维码涨到 90+ 模块，160px 下每个模块
+    不到 2px，扫码器很难稳定识别。压到 140 字符左右就只剩 57 模块。
+    """
+
+    note_id = extract_note_id(url)
+    if not note_id:
+        return url
+    parsed = urlsplit(explore_url(url, note_id))
+    kept = [item for item in parsed.query.split("&") if item.split("=", 1)[0] in _QR_QUERY_KEEP]
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "&".join(kept), ""))
+
+
 def explore_url(base_url: str, note_id: str) -> str:
     normalized = normalize_url(base_url)
     if not normalized:

@@ -1,4 +1,5 @@
 from XHSAnalyse.utils.parse.urls import (
+    qr_url,
     explore_url,
     extract_urls,
     is_note_link,
@@ -98,3 +99,26 @@ def test_explore_url_rewrites_profile_prefixed_form_without_duplicating_path() -
 def test_extract_urls_handles_international_and_mobile_hosts() -> None:
     assert extract_urls("https://www.rednote.com/explore/6abcb8ce000000001c01cbdc") != ()
     assert extract_urls("https://m.xiaohongshu.com/explore/6abcb8ce000000001c01cbdc") != ()
+
+
+def test_qr_url_drops_tracking_parameters() -> None:
+    url = (
+        "https://www.xiaohongshu.com/discovery/item/6adb497c0000000024039919"
+        "?app_platform=android&xsec_token=TOKEN&share_id=abc&xsec_source=app_share"
+        "&track_code=xyz"
+    )
+
+    assert qr_url(url) == (
+        "https://www.xiaohongshu.com/explore/6adb497c0000000024039919"
+        "?xsec_token=TOKEN&xsec_source=app_share"
+    )
+
+
+def test_qr_url_keeps_short_link_untouched() -> None:
+    assert qr_url("https://xhslink.cn/o/AbND8vEAdFa") == "https://xhslink.cn/o/AbND8vEAdFa"
+
+
+def test_qr_url_without_note_id_is_unchanged() -> None:
+    url = "https://www.xiaohongshu.com/user/profile/5f3a1b2c3d4e5f60718293a4"
+
+    assert qr_url(url) == url

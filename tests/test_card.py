@@ -30,6 +30,7 @@ from XHSAnalyse.utils.card import (
     _adaptive_veil_peak,
     _apply_card_corners,
     _crop_rendered_card,
+    _qr_avatar_geometry,
     _description_preview,
 )
 from XHSAnalyse.utils.parse.models import MediaItem, NoteResult
@@ -212,6 +213,20 @@ def test_qr_png_embeds_avatar_at_center() -> None:
     assert center[3] > 200
     assert center[0] > 180
     assert center[1] < 120
+
+
+def test_qr_avatar_is_circular_like_the_card_avatars() -> None:
+    avatar = _avatar_asset()
+    image = Image.open(BytesIO(_qr_png("https://example.com/note", 1.0, avatar))).convert("RGBA")
+    size, _margin, _cut = _qr_avatar_geometry(_QR_SIZE)
+    left = (_QR_SIZE - size) // 2
+    alpha = image.getchannel("A")
+
+    # 方形四角必须被切掉，上边缘正中与中心保持实心——这就是圆
+    assert alpha.getpixel((left + 1, left + 1)) < 40
+    assert alpha.getpixel((left + size - 2, left + 1)) < 40
+    assert alpha.getpixel((left + size // 2, left + 2)) > 200
+    assert alpha.getpixel((left + size // 2, left + size // 2)) > 200
 
 
 def test_qr_html_marks_missing_link_with_transparent_placeholder() -> None:
