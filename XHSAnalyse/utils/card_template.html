@@ -7,7 +7,7 @@ body { width: 720px; font-family: "MiSans", sans-serif; color: #222; background:
 .author { display: flex; align-items: center; min-width: 0; }
 .avatar { width: 62px; height: 62px; border-radius: 50%; background: rgba(226,226,226,.80); object-fit: cover; }
 .author-meta { margin-left: 14px; min-width: 0; }
-.author-name { font-size: 30px; font-weight: 700; color: #222; line-height: 1.18; }
+.author-name { font-size: 26px; font-weight: 700; color: #222; line-height: 1.18; }
 .author-sub { display: flex; align-items: center; gap: 14px; margin-top: 5px; font-size: 20px; color: #666; }
 .publish-time { white-space: nowrap; }
 .location { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
@@ -17,7 +17,7 @@ body { width: 720px; font-family: "MiSans", sans-serif; color: #222; background:
 .body { position: absolute; left: 50px; right: 50px; top: 120px; }
 .title { max-width: 620px; font-size: 36px; font-weight: 700; color: #1f1f1f; line-height: 1.22; word-break: break-word; }
 .tags { margin-top: 17px; font-size: 24px; color: #5f5f5f; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.note-meta { display: flex; align-items: center; margin-top: 20px; }
+.note-meta { position: absolute; left: 50px; top: {{PILL_TOP}}px; display: flex; align-items: center; }
 .pill { display: flex; align-items: center; padding: 8px 16px; border-radius: 999px; background: rgba(255,255,255,.72); color: #555; font-size: 21px; }
 .pill-dot { width: 9px; height: 9px; border-radius: 50%; background: #ff2442; margin-right: 10px; }
 .footer { position: absolute; left: 50px; right: 50px; bottom: 45px; }
@@ -29,25 +29,25 @@ body { width: 720px; font-family: "MiSans", sans-serif; color: #222; background:
 .stat { min-width: 72px; }
 .stat-label { font-size: 19px; font-weight: 600; color: #555; }
 .stat-value { margin-top: 4px; font-size: 32px; white-space: nowrap; font-weight: 700; color: #000; line-height: 1.05; }
-.generated { margin-top: 13px; font-size: 18px; color: #818181; }
+.generated { margin-top: 13px; font-size: 18px; color: #757575; }
 .user-row { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 20px; gap: 20px; }
 .user-info { min-width: 0; flex: 1 1 auto; }
 .user-info > .author { align-items: flex-start; }
 .mini-avatar { width: 54px; height: 54px; }
 .mini-meta { margin-left: 13px; min-width: 0; }
-.mini-name { font-size: 27px; font-weight: 700; color: #222; line-height: 1.2; }
-.mini-sub { margin-top: 4px; font-size: 19px; color: #7f7f7f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
-.author-stats { display: flex; justify-content: flex-start; gap: 44px; margin-top: 16px; max-width: 100%; overflow: visible; color: #777; font-size: 17px; white-space: nowrap; }
+.mini-name { font-size: 24px; font-weight: 700; color: #222; line-height: 1.2; }
+.mini-sub { margin-top: 4px; font-size: 19px; color: #737373; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+.author-stats { display: flex; justify-content: flex-start; gap: 44px; margin-top: 16px; max-width: 100%; overflow: visible; color: #6e6e6e; font-size: 17px; white-space: nowrap; }
 .author-stat { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; }
 .author-stat-head { display: inline-flex; align-items: center; gap: 5px; }
 .author-stat-icon { display: inline-flex; width: 20px; height: 20px; color: #666; flex: 0 0 auto; }
 .author-stat-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.author-stat-label { color: #777; font-size: 15px; letter-spacing: -.2px; line-height: 1.1; }
+.author-stat-label { color: #6e6e6e; font-size: 15px; letter-spacing: -.2px; line-height: 1.1; }
 .author-stat strong { color: #222; font-size: 24px; font-weight: 700; line-height: 1; }
-.qr-wrap { width: 176px; display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
-.qr-caption { margin-bottom: 6px; color: #777; font-size: 16px; line-height: 1.2; text-align: center; white-space: nowrap; }
-.qr { width: 176px; height: 176px; border-radius: 10px; object-fit: contain; background: #fff; }
-.qr-placeholder { width: 176px; height: 176px; border-radius: 10px; background: #111; }
+.qr-wrap { width: 160px; display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; margin-right: -20px; margin-bottom: -10px; }
+.qr-caption { margin-bottom: 5px; color: #646464; font-size: 14px; line-height: 1.2; text-align: center; white-space: nowrap; }
+.qr { width: 160px; height: 160px; border-radius: 0; object-fit: contain; background: transparent; }
+.qr-placeholder { width: 160px; height: 160px; border-radius: 8px; border: 1px dashed rgba(0, 0, 0, .16); background: transparent; }
 </style>
 <div class="card">
   <img class="background" src="{{BACKGROUND}}">
@@ -64,8 +64,8 @@ body { width: 720px; font-family: "MiSans", sans-serif; color: #222; background:
   <div class="body">
     <div class="title">{{TITLE}}</div>
     <div class="tags">{{TAGS}}</div>
-    <div class="note-meta"><div class="pill"><div class="pill-dot"></div><span>{{MEDIA_LABEL}}</span></div></div>
   </div>
+  <div class="note-meta"><div class="pill"><div class="pill-dot"></div><span>{{MEDIA_LABEL}}</span></div></div>
   <div class="footer">
     <div class="media-line"><div class="desc-preview">{{DESC_PREVIEW}}</div><span class="media-resolution">{{MEDIA_META}}</span></div>
     <div class="generated">图片生成于: {{GENERATED_AT}}</div>

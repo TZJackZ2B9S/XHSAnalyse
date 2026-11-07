@@ -9,6 +9,7 @@ import html
 import math
 import base64
 import asyncio
+import colorsys
 from io import BytesIO
 from typing import NamedTuple
 from pathlib import Path
@@ -17,9 +18,8 @@ from functools import lru_cache
 
 import httpx
 import qrcode
-from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter, ImageEnhance
-from qrcode.constants import ERROR_CORRECT_M
-from qrcode.image.pil import PilImage
+from PIL import Image, ImageDraw, ImageFont, ImageStat, ImageFilter, ImageEnhance
+from qrcode.constants import ERROR_CORRECT_Q
 from qrcode.exceptions import DataOverflowError
 
 from gsuid_core.logger import logger
@@ -41,25 +41,72 @@ _TITLE_LINE_HEIGHT = 1.22
 _TAGS_GAP = 17
 _TAG_LINE_HEIGHT = 32
 _COVER_OVERLAY = 12
+# tag 下沿与封面渐隐起点之间的间距，与底部简介行到白纱起点的间距对齐。
+_TAG_SAFE_GAP = 20
+# 类型药丸压在封面实图上，必须落在封面顶部渐隐结束之后，否则会被半透明
+# 渐变切成两截。这里在渐隐终点下方再留一点余量。
+_PILL_GAP = 14
 _MIN_COVER_TOP = 180
-_FOOTER_SPACE_WITH_STATS = 341
-_FOOTER_SPACE_PLAIN = 312
-_COVER_FADE_LEAD = 36
-_COVER_FADE_IN = 90
-_COVER_FADE_OUT = 90
-_VEIL_TOP_PEAK = 145.0
-_VEIL_TOP_FADE = 220
-_VEIL_BOTTOM_PEAK = 145.0
-_VEIL_BOTTOM_RAMP = 220
+# 页脚是 ``bottom: 45px`` 的底部锚定块，它到封面渐隐中点的距离由这两个值决定。
+# 取 377/323 时上下两侧字形到渐隐中点的距离都是 78.7px（实测 1.5 倍渲染），
+# 再小就会让页脚首行贴到封面渐隐尾迹上，视觉上明显上紧下松。
+_FOOTER_SPACE_WITH_STATS = 377
+_FOOTER_SPACE_PLAIN = 323
+# 封面上下渐隐的长度按封面高度自适应，只占封面很小一段：固定比例在
+# 高封面上会吃掉过多画面，在矮封面上又不足以隐藏硬边。上下限保证
+# 极端尺寸下仍然既有过渡、又不浪费空间。
+_COVER_FADE_RATIO = 0.075
+_COVER_FADE_MIN = 40
+_COVER_FADE_MAX = 90
+# 边缘模糊带：渐隐区内把封面逐步换成自身模糊版本，让短渐变也能自然
+# 融进氛围层，不依赖“拉长渐变”来掩盖高频硬边。
+# 白纱：文字区保持高不透明度，离开文字区后先用短渐变快速降到低强度
+# 尾迹，再用长尾把过渡摊平。这样既保证对比度，又不会用一大段高白把
+# 封面洗掉——视觉上“占用”的纵向空间远小于同等峰值的长渐变。
+_VEIL_TOP_PEAK_MIN = 90.0
+_VEIL_TOP_PEAK_MAX = 150.0
+_VEIL_TOP_LUMA_WEIGHT = 0.40
+_VEIL_TOP_TAIL = 24.0
+_VEIL_TOP_FADE = 110
+_VEIL_TOP_TAIL_FADE = 260
+_VEIL_BOTTOM_PEAK_MIN = 130.0
+_VEIL_BOTTOM_PEAK_MAX = 180.0
+_VEIL_BOTTOM_LUMA_WEIGHT = 0.33
+_VEIL_BOTTOM_TAIL = 30.0
+_VEIL_BOTTOM_RAMP = 110
+_VEIL_BOTTOM_TAIL_FADE = 240
+# 延伸色：把封面上下两端的主色调去饱和提亮后作为白纱底色，
+# 渐变末端不再是中性白，而是带着封面色相的雾，接缝感更弱。
+_VEIL_TINT_SATURATION = 0.32
+_VEIL_TINT_MIX = 0.30
+# 混色上限受亮度地板约束：色相再深，白纱亮度也不会低于这个值，
+# 保证底栏灰字（#6f6f6f）的对比度不被延伸色吃掉。
+_VEIL_TINT_LUMA_FLOOR = 240.0
+_AMBIENT_BLUR = 76
 _CORNER_RADIUS = 24
+# 二维码：透明底、圆点变形、中心头像；尺寸与右下角偏移由模板同步。
+_QR_SIZE = 160
+_QR_QUIET_ZONE = 4
+# 中心头像会挖掉约 6% 面积，M 级（≈15% 纠错）足够；
+# 用 Q 级会把模块数抬到 57+，140px 下每模块只剩 2.1px，反而更难扫。
+_QR_ERROR_CORRECTION = ERROR_CORRECT_Q
+_QR_SUPERSAMPLE = 4
+_QR_INK = (17, 17, 17, 255)
+_QR_DOT_RADIUS = 0.34
+_QR_AVATAR_RATIO = 0.20
+_QR_AVATAR_MARGIN_RATIO = 0.024
+_QR_AVATAR_CACHE_SIZE = 32
+_AVATAR_SIZE = 256
 _CHINA_TZ = timezone(timedelta(hours=8))
 _TEMPLATE_PATH = Path(__file__).with_name("card_template.html")
 _ICON_PATH = Path(__file__).parents[2] / "ICON.png"
 
 
-def _smoothstep(value: float) -> float:
+def _smootherstep(value: float) -> float:
+    """五次平滑曲线：两端一阶、二阶导数都为 0，短渐变也不容易出现折角。"""
+
     value = max(0.0, min(1.0, value))
-    return value * value * (3.0 - 2.0 * value)
+    return value * value * value * (value * (value * 6.0 - 15.0) + 10.0)
 
 
 def _crop_to_card(source: Image.Image, width: int, height: int) -> Image.Image:
@@ -123,6 +170,12 @@ def _title_line_count(title: str) -> int:
     return max(1, len(_wrap_text(title or "未知标题", _TITLE_MAX_WIDTH)))
 
 
+def _pill_top(layout: "_CardLayout") -> int:
+    """类型药丸的纵向位置：封面顶部渐隐结束之后再往下留 ``_PILL_GAP``。"""
+
+    return layout.cover_top + _cover_fade_length(layout.cover_height) + _PILL_GAP
+
+
 def _top_text_end(title: str) -> int:
     """标题和 tag 的下沿；类型 pill 不参与封面顶部安全区计算。"""
 
@@ -149,11 +202,21 @@ def _card_layout(source_size: tuple[int, int], result: NoteResult | None = None)
         cover_top = _COVER_TOP
         footer_space = _FOOTER_SPACE
         top_hold = _COVER_TOP + 48
-    else:
-        top_hold = _top_text_end(result.title)
-        cover_top = max(_MIN_COVER_TOP, top_hold - _TAG_LINE_HEIGHT - _COVER_OVERLAY)
-        footer_space = _footer_space_for(result)
-    card_height = max(_MIN_CARD_HEIGHT, cover_top + cover_height + footer_space)
+        card_height = max(_MIN_CARD_HEIGHT, cover_top + cover_height + footer_space)
+        return _CardLayout(card_height, cover_height, cover_top, top_hold, footer_space)
+    top_hold = _top_text_end(result.title)
+    # tag 下沿到封面渐隐起点留出正间距：底部简介行到白纱起点也是正间距，
+    # 两侧对称后 tag 不会压在封面刚开始显影的位置上。
+    cover_top = max(_MIN_COVER_TOP, top_hold + _TAG_SAFE_GAP)
+    footer_space = _footer_space_for(result)
+    card_height = cover_top + cover_height + footer_space
+    if card_height < _MIN_CARD_HEIGHT:
+        # 高度被下限托起时把多出来的空白对半分给封面上下两侧；只补在页脚上方
+        # 会让下间距凭空变大，宽封面（16:9 之类）立刻又变成上紧下松。
+        extra = _MIN_CARD_HEIGHT - card_height
+        cover_top += extra // 2
+        footer_space += extra - extra // 2
+        card_height = _MIN_CARD_HEIGHT
     return _CardLayout(card_height, cover_height, cover_top, top_hold, footer_space)
 
 
@@ -164,78 +227,127 @@ def _card_geometry(source_size: tuple[int, int]) -> tuple[int, int, int]:
     return layout.card_height, layout.cover_height, layout.cover_top
 
 
-def _cover_mask(width: int, height: int) -> Image.Image:
-    """封面上下渐隐，保持主体完整并自然融入氛围背景。"""
+def _cover_fade_length(cover_height: int) -> int:
+    """按封面高度取渐隐长度，并夹在上下限之间。"""
 
-    mask = Image.new("L", (width, height), 0)
-    draw = ImageDraw.Draw(mask)
-    fade_ratio = 0.24
-    for y in range(height):
-        position = y / max(1, height - 1)
-        if position < fade_ratio:
-            alpha = _smoothstep(position / fade_ratio)
-        elif position <= 1.0 - fade_ratio:
-            alpha = 1.0
-        else:
-            alpha = 1.0 - _smoothstep((position - (1.0 - fade_ratio)) / fade_ratio)
-        draw.line((0, y, width, y), fill=round(alpha * 255))
-    return mask
+    return max(
+        _COVER_FADE_MIN,
+        min(_COVER_FADE_MAX, round(cover_height * _COVER_FADE_RATIO)),
+    )
 
 
-def _foreground_mask(
+def _cover_mask(
     width: int,
     height: int,
-    cover_top: int,
-    cover_height: int,
+    top_fade: int | None = None,
+    bottom_fade: int | None = None,
 ) -> Image.Image:
-    """封面显影随封面位置走，不再按固定 1549 高度拉伸。"""
+    """封面上下渐隐：顶部保持紧凑，底部可延长到页脚，避免短封面留下硬边。
+
+    渐隐长度按设备像素传入（调用方已经乘过 ``render_scale``），
+    这样同一张封面在不同分辨率下的渐变比例保持一致。
+    """
 
     mask = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(mask)
-    fade_in_start = cover_top - _COVER_FADE_LEAD
-    fade_in_end = cover_top + _COVER_FADE_IN
-    cover_bottom = cover_top + cover_height
-    fade_out_start = cover_bottom - _COVER_FADE_OUT
-    fade_out_end = cover_bottom + _COVER_FADE_LEAD
+    fallback = _cover_fade_length(height)
+    top = max(1, min(top_fade if top_fade is not None else fallback, max(1, height // 2)))
+    bottom = max(1, bottom_fade if bottom_fade is not None else fallback)
+    bottom = min(bottom, max(1, height - top))
     for y in range(height):
-        if y < fade_in_start:
-            alpha = 0.0
-        elif y < fade_in_end:
-            alpha = _smoothstep((y - fade_in_start) / max(1, fade_in_end - fade_in_start))
-        elif y <= fade_out_start:
-            alpha = 1.0
-        elif y < fade_out_end:
-            alpha = 1.0 - _smoothstep((y - fade_out_start) / max(1, fade_out_end - fade_out_start))
+        if y < top:
+            alpha = _smootherstep((y + 0.5) / top)
+        elif y >= height - bottom:
+            alpha = _smootherstep((height - 1 - y + 0.5) / bottom)
         else:
-            alpha = 0.0
+            alpha = 1.0
         draw.line((0, y, width, y), fill=round(alpha * 255))
     return mask
 
 
-def _color_veil(width: int, height: int, top_hold: int, footer_top: int) -> Image.Image:
+def _veil_strength(distance: float, peak: float, fade: int, tail: float, tail_fade: int) -> float:
+    """文字区外的高强度渐变 + 低强度长尾。"""
+
+    if distance <= 0:
+        return peak + tail
+    strong = peak * (1.0 - _smootherstep(distance / max(1, fade))) if distance < fade else 0.0
+    soft = tail * (1.0 - _smootherstep(distance / max(1, tail_fade))) if distance < tail_fade else 0.0
+    return strong + soft
+
+
+def _adaptive_veil_peak(luma: float, maximum: float, minimum: float, weight: float) -> float:
+    """按底图亮度调整白纱强度：亮图少洗一点，暗图多留一点对比度。"""
+
+    return max(minimum, min(maximum, maximum - luma * weight))
+
+
+def _rgb_luma(red: float, green: float, blue: float) -> float:
+    return 0.299 * red + 0.587 * green + 0.114 * blue
+
+
+def _edge_tint(image: Image.Image, top: int, bottom: int) -> tuple[int, int, int]:
+    """取区域平均色相，按固定比例混进白色，作为该侧渐变的延伸色。
+
+    混色比例受亮度地板约束：深色封面只能混进较少比例，
+    所以白纱始终够亮，灰字对比度不被色相吃掉；
+    纯灰封面的饱和度为 0，算出来仍是纯白。
+    """
+
+    height = image.height
+    top = max(0, min(height - 1, top))
+    bottom = max(top + 1, min(height, bottom))
+    mean = ImageStat.Stat(image.crop((0, top, image.width, bottom)).convert("RGB")).mean
+    hue, saturation, _ = colorsys.rgb_to_hsv(mean[0] / 255.0, mean[1] / 255.0, mean[2] / 255.0)
+    pure = [channel * 255.0 for channel in colorsys.hsv_to_rgb(hue, min(saturation, _VEIL_TINT_SATURATION), 1.0)]
+    pure_luma = _rgb_luma(pure[0], pure[1], pure[2])
+    headroom = (255.0 - _VEIL_TINT_LUMA_FLOOR) / max(1.0, 255.0 - pure_luma)
+    mix = min(_VEIL_TINT_MIX, headroom)
+    mixed = [round(255.0 * (1.0 - mix) + channel * mix) for channel in pure]
+    return mixed[0], mixed[1], mixed[2]
+
+
+def _color_veil(
+    width: int,
+    height: int,
+    top_hold: int,
+    footer_top: int,
+    top_peak: float,
+    bottom_peak: float,
+    top_tint: tuple[int, int, int],
+    bottom_tint: tuple[int, int, int],
+) -> Image.Image:
     """灰字所在区域保持近白，中间把封面颜色露出来。"""
 
-    veil = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+    veil = Image.new("RGBA", (width, height), (*top_tint, 0))
     draw = ImageDraw.Draw(veil)
-    top_fade_end = top_hold + _VEIL_TOP_FADE
-    bottom_full = footer_top + 18
-    bottom_start = footer_top - _VEIL_BOTTOM_RAMP
     for y in range(height):
-        if y <= top_hold:
-            alpha = _VEIL_TOP_PEAK
-        elif y < top_fade_end:
-            alpha = _VEIL_TOP_PEAK * (
-                1.0 - _smoothstep((y - top_hold) / max(1, top_fade_end - top_hold))
-            )
-        else:
-            alpha = 0.0
-        if y >= bottom_full:
-            alpha = max(alpha, _VEIL_BOTTOM_PEAK)
-        elif y > bottom_start:
-            ramp = _smoothstep((y - bottom_start) / max(1, bottom_full - bottom_start))
-            alpha = max(alpha, _VEIL_BOTTOM_PEAK * ramp)
-        draw.line((0, y, width, y), fill=(255, 255, 255, round(alpha)))
+        top_alpha = _veil_strength(
+            y - top_hold,
+            top_peak,
+            _VEIL_TOP_FADE,
+            _VEIL_TOP_TAIL,
+            _VEIL_TOP_TAIL_FADE,
+        )
+        bottom_alpha = _veil_strength(
+            footer_top - y,
+            bottom_peak,
+            _VEIL_BOTTOM_RAMP,
+            _VEIL_BOTTOM_TAIL,
+            _VEIL_BOTTOM_TAIL_FADE,
+        )
+        alpha = min(255.0, max(top_alpha, bottom_alpha))
+        color = top_tint if top_alpha >= bottom_alpha else bottom_tint
+        draw.line((0, y, width, y), fill=(*color, round(alpha)))
     return veil
+
+
+def _region_luma(image: Image.Image, top: int, bottom: int) -> float:
+    """取一条横带亮度的平均值，用来决定白纱强度。"""
+
+    height = image.height
+    top = max(0, min(height - 1, top))
+    bottom = max(top + 1, min(height, bottom))
+    return ImageStat.Stat(image.crop((0, top, image.width, bottom)).convert("L")).mean[0]
 
 
 def _build_background(
@@ -253,22 +365,54 @@ def _build_background(
     cover_top = round(resolved.cover_top * render_scale)
     top_hold = round(resolved.top_hold * render_scale)
     footer_top = height - round(resolved.footer_space * render_scale)
-    ambient = _crop_to_card(source, width, height).filter(ImageFilter.GaussianBlur(76 * render_scale))
+    ambient = _crop_to_card(source, width, height).filter(ImageFilter.GaussianBlur(_AMBIENT_BLUR * render_scale))
     ambient = ImageEnhance.Color(ambient).enhance(1.10)
     ambient = ImageEnhance.Contrast(ambient).enhance(0.96)
     ambient = ambient.convert("RGBA")
     cover = source.resize((width, cover_height), Image.Resampling.LANCZOS).convert("RGBA")
+    # 渐隐长度按逻辑像素算好再乘分辨率：同一张封面在 1.0/1.5/2.0 下
+    # 的渐变比例必须一致，否则高分辨率反而显得更硬。
+    top_fade = _cover_fade_length(resolved.cover_height)
+    footer_top_logical = logical_height - resolved.footer_space
+    cover_bottom = resolved.cover_top + resolved.cover_height
+    bottom_fade = max(top_fade, footer_top_logical - cover_bottom + 24)
+    bottom_fade = min(bottom_fade, max(top_fade, resolved.cover_height - top_fade))
     cover_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    cover.putalpha(_cover_mask(width, cover_height))
-    cover_layer.alpha_composite(cover, (0, cover_top))
-    cover_layer.putalpha(
-        ImageChops.multiply(
-            cover_layer.getchannel("A"),
-            _foreground_mask(width, height, cover_top, cover_height),
+    cover.putalpha(
+        _cover_mask(
+            width,
+            cover_height,
+            round(top_fade * render_scale),
+            round(bottom_fade * render_scale),
         )
     )
-    result = Image.alpha_composite(ambient, cover_layer)
-    result = Image.alpha_composite(result, _color_veil(width, height, top_hold, footer_top)).convert("RGB")
+    cover_layer.alpha_composite(cover, (0, cover_top))
+    composed = Image.alpha_composite(ambient, cover_layer)
+    top_peak = _adaptive_veil_peak(
+        _region_luma(composed, 0, top_hold),
+        _VEIL_TOP_PEAK_MAX,
+        _VEIL_TOP_PEAK_MIN,
+        _VEIL_TOP_LUMA_WEIGHT,
+    )
+    bottom_peak = _adaptive_veil_peak(
+        _region_luma(composed, footer_top, height),
+        _VEIL_BOTTOM_PEAK_MAX,
+        _VEIL_BOTTOM_PEAK_MIN,
+        _VEIL_BOTTOM_LUMA_WEIGHT,
+    )
+    result = Image.alpha_composite(
+        composed,
+        _color_veil(
+            width,
+            height,
+            top_hold,
+            footer_top,
+            top_peak,
+            bottom_peak,
+            _edge_tint(composed, 0, top_hold),
+            _edge_tint(composed, footer_top, height),
+        ),
+    ).convert("RGB")
     output = BytesIO()
     # 保留完整像素数据；卡片尺寸本身受控，不额外做 PNG 压缩。
     result.save(output, format="PNG", optimize=False)
@@ -320,24 +464,127 @@ def _apply_card_corners(content: bytes, render_scale: float) -> bytes:
     return output.getvalue()
 
 
-@lru_cache(maxsize=128)
-def _qr_html(value: str, render_scale: float) -> str:
-    if not value:
-        return '<div class="qr-placeholder"></div>'
-    box_size = max(1, round(8 * render_scale))
-    border = max(1, round(2 * render_scale))
+class _Avatar(NamedTuple):
+    """已归一化的作者头像，供卡片与二维码复用。"""
+
+    data: bytes
+    mime: str
+
+
+def _rounded_mask(size: int, radius: int) -> Image.Image:
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, size - 1, size - 1),
+        radius=max(0, min(radius, size // 2)),
+        fill=255,
+    )
+    return mask
+
+
+def _qr_avatar_geometry(canvas: int) -> tuple[int, int, int]:
+    size = max(1, int(canvas * _QR_AVATAR_RATIO))
+    margin = max(1, int(canvas * _QR_AVATAR_MARGIN_RATIO))
+    return size, margin, size + margin * 2
+
+
+def _qr_module_mask(matrix: list[list[bool]], canvas: int) -> Image.Image:
+    """把 QR 矩阵画成圆角方块的变形点阵，三个定位角画成圆环。
+
+    单模块用 ``_QR_DOT_RADIUS`` 的圆角方块而不是正圆：正圆只覆盖模块
+    面积的 78%，在 140px、57 模块这种高密度下会糊成灰团；圆角方块既
+    保留参考实现的团块感，又能让解码器稳定采到模块中心。
+    相邻黑点用同高矩形连成一片，定位角单独清空后重绘成圆环 + 圆点。
+    """
+
+    count = len(matrix)
+    module = canvas / (count + _QR_QUIET_ZONE * 2)
+    radius = max(0, int(module * _QR_DOT_RADIUS))
+    mask = Image.new("L", (canvas, canvas), 0)
+    draw = ImageDraw.Draw(mask)
+    finders = ((0, 0), (0, count - 7), (count - 7, 0))
+
+    def in_finder(x: int, y: int) -> bool:
+        return any(fx <= x < fx + 7 and fy <= y < fy + 7 for fx, fy in finders)
+
+    for y in range(count):
+        row = matrix[y]
+        for x in range(count):
+            if not row[x] or in_finder(x, y):
+                continue
+            left = (x + _QR_QUIET_ZONE) * module
+            top = (y + _QR_QUIET_ZONE) * module
+            draw.rounded_rectangle(
+                (left, top, left + module, top + module),
+                radius=radius,
+                fill=255,
+            )
+
+    for finder_x, finder_y in finders:
+        origin_x = (finder_x + _QR_QUIET_ZONE) * module
+        origin_y = (finder_y + _QR_QUIET_ZONE) * module
+        draw.ellipse(
+            (origin_x, origin_y, origin_x + 7 * module, origin_y + 7 * module),
+            outline=255,
+            width=max(1, round(module)),
+        )
+        draw.ellipse(
+            (origin_x + 2 * module, origin_y + 2 * module, origin_x + 5 * module, origin_y + 5 * module),
+            fill=255,
+        )
+    return mask
+
+
+def _qr_avatar_layer(avatar: _Avatar, canvas: int) -> tuple[Image.Image, Image.Image]:
+    """返回头像图层与需要挖空的圆角遮罩。"""
+
+    size, margin, cut = _qr_avatar_geometry(canvas)
+    cutout = Image.new("L", (canvas, canvas), 0)
+    cutout.paste(
+        255,
+        ((canvas - cut) // 2, (canvas - cut) // 2),
+        _rounded_mask(cut, int(cut * 0.2)),
+    )
+    source = Image.open(BytesIO(avatar.data)).convert("RGBA")
+    source = source.resize((size, size), Image.Resampling.LANCZOS)
+    source.putalpha(_rounded_mask(size, int(size * 0.2)))
+    layer = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    layer.alpha_composite(source, ((canvas - size) // 2, (canvas - size) // 2))
+    return layer, cutout
+
+
+@lru_cache(maxsize=_QR_AVATAR_CACHE_SIZE)
+def _qr_png(value: str, render_scale: float, avatar: _Avatar | None) -> bytes:
     code = qrcode.QRCode(
         version=None,
-        error_correction=ERROR_CORRECT_M,
-        box_size=box_size,
-        border=border,
+        error_correction=_QR_ERROR_CORRECTION,
+        box_size=1,
+        border=0,
     )
     code.add_data(value)
     code.make(fit=True)
-    image = code.make_image(image_factory=PilImage, fill_color="#222222", back_color="white")
+    target = max(1, round(_QR_SIZE * render_scale))
+    canvas = target * _QR_SUPERSAMPLE
+    mask = _qr_module_mask(code.get_matrix(), canvas)
+    avatar_layer: Image.Image | None = None
+    if avatar is not None:
+        avatar_layer, cutout = _qr_avatar_layer(avatar, canvas)
+        mask.paste(0, (0, 0), cutout)
+    # 先把灰度遮罩缩到目标尺寸再上色：直接对 RGBA 做 LANCZOS 会让
+    # 透明的黑底和墨色一起参与插值，alpha 振铃把相邻模块糊成一片，
+    # 57 模块以上的长链接就会在 2~3 px/module 时扫不出来。
+    image = Image.new("RGBA", (target, target), (0, 0, 0, 0))
+    image.paste(_QR_INK, mask=mask.resize((target, target), Image.Resampling.LANCZOS))
+    if avatar_layer is not None:
+        image.alpha_composite(avatar_layer.resize((target, target), Image.Resampling.LANCZOS))
     output = BytesIO()
     image.save(output, format="PNG", optimize=True)
-    return f'<img class="qr" src="{_data_uri(output.getvalue())}">'
+    return output.getvalue()
+
+
+def _qr_html(value: str, render_scale: float, avatar: _Avatar | None) -> str:
+    if not value:
+        return '<div class="qr-placeholder"></div>'
+    return f'<img class="qr" src="{_data_uri(_qr_png(value, render_scale, avatar))}">'
 
 
 def _tags(desc: str) -> str:
@@ -376,14 +623,18 @@ def _compact_count(number: int) -> str:
 
 
 def _author_count(value: str) -> str:
-    """只显示精确统计；页面返回 ``10+`` 等区间文案时不伪造数值。"""
+    """规范化作者统计展示值。
+
+    平台对部分账号只下发模糊文案（``10+``、``1千+``、``1万+``），原样展示
+    模糊值比留空更符合预期；只有占位符与无法解析的形态才返回空串。
+    """
 
     raw = (value or "").strip().replace(",", "")
-    if not raw or "+" in raw:
+    if not raw or raw in {"-", "--", "—"}:
         return ""
     if re.fullmatch(r"\d+", raw):
         return _compact_count(int(raw))
-    if re.fullmatch(r"\d+(?:\.\d+)?(?:万|亿)", raw):
+    if re.fullmatch(r"\d+(?:\.\d+)?[万亿万千kKwW]?\+?", raw):
         return raw
     return ""
 
@@ -547,10 +798,10 @@ def _location_icon_uri(render_scale: float) -> str:
     return _data_uri(output.getvalue())
 
 
-def _avatar_html(uri: str, *, mini: bool = False) -> str:
+def _avatar_html(avatar: _Avatar | None, *, mini: bool = False) -> str:
     class_name = "avatar mini-avatar" if mini else "avatar"
-    if uri:
-        return f'<img class="{class_name}" src="{uri}">'
+    if avatar is not None:
+        return f'<img class="{class_name}" src="{_data_uri(avatar.data, avatar.mime)}">'
     return f'<div class="{class_name}"></div>'
 
 
@@ -566,9 +817,30 @@ def _brand_icon_uri(render_scale: float) -> str:
     return _data_uri(output.getvalue())
 
 
-async def _download_avatar(client: httpx.AsyncClient | None, url: str) -> str:
+def _normalize_avatar(content: bytes) -> _Avatar | None:
+    """把头像裁成正方形并缩到固定尺寸，避免原图 base64 撑大模板。"""
+
+    try:
+        image = Image.open(BytesIO(content)).convert("RGBA")
+        width, height = image.size
+        if width <= 0 or height <= 0:
+            return None
+        side = min(width, height)
+        image = image.crop(
+            ((width - side) // 2, (height - side) // 2, (width + side) // 2, (height + side) // 2)
+        )
+        image = image.resize((_AVATAR_SIZE, _AVATAR_SIZE), Image.Resampling.LANCZOS)
+        output = BytesIO()
+        image.save(output, format="PNG", optimize=True)
+        return _Avatar(output.getvalue(), "image/png")
+    except (OSError, ValueError, Image.DecompressionBombError) as error:
+        logger.debug(f"[XHSAnalyse] 作者头像解析失败：{error}")
+        return None
+
+
+async def _download_avatar(client: httpx.AsyncClient | None, url: str) -> _Avatar | None:
     if client is None or not url:
-        return ""
+        return None
     try:
         response = await client.get(
             url,
@@ -578,22 +850,20 @@ async def _download_avatar(client: httpx.AsyncClient | None, url: str) -> str:
         response.raise_for_status()
         if len(response.content) > 2 * 1024 * 1024:
             raise ValueError("头像超过 2 MB")
-        mime = response.headers.get("content-type", "image/jpeg").split(";", 1)[0].strip()
-        if not mime.startswith("image/"):
-            return ""
-        return _data_uri(response.content, mime)
-    except (httpx.HTTPError, OSError, ValueError) as error:
+        return await asyncio.to_thread(_normalize_avatar, response.content)
+    except (httpx.HTTPError, ValueError) as error:
         logger.debug(f"[XHSAnalyse] 作者头像下载失败：{error}")
-        return ""
+        return None
 
 
 def _template(
     result: NoteResult,
     media_count: int,
-    avatar_uri: str,
+    avatar: _Avatar | None,
     render_scale: float,
     card_height: int = _HEIGHT,
     *,
+    pill_top: int,
     no_cookie_mode: bool = False,
 ) -> str:
     title = html.escape(result.title or "未知标题")
@@ -621,8 +891,8 @@ def _template(
     values = {
         "AUTHOR": author,
         "BRAND_ICON": _brand_icon_uri(render_scale),
-        "AVATAR": _avatar_html(avatar_uri),
-        "MINI_AVATAR": _avatar_html(avatar_uri, mini=True),
+        "AVATAR": _avatar_html(avatar),
+        "MINI_AVATAR": _avatar_html(avatar, mini=True),
         "PUBLISH_TIME": publish_time,
         "LOCATION": location_html,
         "TITLE": title,
@@ -641,8 +911,9 @@ def _template(
         "AUTHOR_ID": author_id,
         "AUTHOR_STATS": _author_stats_html(result, no_cookie_mode=no_cookie_mode),
         "GENERATED_AT": generated_at,
-        "QR": _qr_html(result.share_url, render_scale),
+        "QR": _qr_html(result.share_url, render_scale, avatar),
         "CARD_HEIGHT": str(card_height),
+        "PILL_TOP": str(pill_top),
     }
     template = _template_source()
     for key, value in values.items():
@@ -678,7 +949,7 @@ async def render_note_card(
             preview_path = converted_preview
         avatar_task = _download_avatar(client, result.author_avatar)
         size_task = asyncio.to_thread(_image_size, preview_path)
-        avatar_uri, source_size = await asyncio.gather(avatar_task, size_task)
+        avatar, source_size = await asyncio.gather(avatar_task, size_task)
         layout = _card_layout(source_size, result)
         card_height = layout.card_height
         render_scale = scale
@@ -693,9 +964,10 @@ async def render_note_card(
             _template,
             result,
             sum(1 for item in result.media if not item.is_video),
-            avatar_uri,
+            avatar,
             render_scale,
             card_height,
+            pill_top=_pill_top(layout),
             no_cookie_mode=no_cookie_mode,
         )
         background, template = await asyncio.gather(background_task, template_task)
