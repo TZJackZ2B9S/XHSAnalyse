@@ -251,9 +251,7 @@ def cleanup_media(
     """
 
     for item in media:
-        if (item.is_video and video_send_type == "file") or (
-            not item.is_video and image_send_type == "file"
-        ):
+        if (item.is_video and video_send_type == "file") or (not item.is_video and image_send_type == "file"):
             schedule_file_cleanup(item.path)
         else:
             item.path.unlink(missing_ok=True)

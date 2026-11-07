@@ -7,6 +7,7 @@ def test_card_and_proxy_settings_are_exposed_in_gscore_config() -> None:
     assert CONFIG_DEFAULT["renderScale"].title == "卡片渲染精度"
     assert CONFIG_DEFAULT["renderScale"].options == []
     assert CONFIG_DEFAULT["renderScale"].max_value == 500
+    assert "sendCardMessage" not in CONFIG_DEFAULT
     assert "renderCompression" not in CONFIG_DEFAULT
     assert CONFIG_DEFAULT["proxy"].title == "代理服务器地址"
     assert CONFIG_DEFAULT["proxy"].data == ""

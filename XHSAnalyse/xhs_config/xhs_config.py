@@ -29,10 +29,11 @@ if isinstance(_render_scale_config, GsIntConfig):
     if config_changed:
         XHSAnalyseConfig.write_config()
 
-# 核心会保留孤儿键，显式删除已废弃的卡片压缩配置。
-if "renderCompression" in XHSAnalyseConfig.config:
-    XHSAnalyseConfig.config.pop("renderCompression")
-    XHSAnalyseConfig.write_config()
+# 核心会保留孤儿键，显式删除已废弃的配置项。
+for _obsolete_key in ("renderCompression", "sendCardMessage"):
+    if _obsolete_key in XHSAnalyseConfig.config:
+        XHSAnalyseConfig.config.pop(_obsolete_key)
+        XHSAnalyseConfig.write_config()
 
 _VIDEO_HEIGHTS = {
     "4k": 2160,
@@ -51,6 +52,7 @@ class XhsSettings:
     cookie: str
     proxy: str
     detect_links: bool
+    auto_refresh_session: bool
     video_quality: str
     max_media_size: int
     fetch_retries: int
@@ -109,6 +111,7 @@ def get_settings() -> XhsSettings:
         cookie=_str("cookie").strip(),
         proxy=_str("proxy").strip(),
         detect_links=_bool("detectLinks"),
+        auto_refresh_session=_bool("autoRefreshSession"),
         video_quality=video_quality,
         max_media_size=(max_size or 512) * 1024 * 1024,
         fetch_retries=max(1, _int("fetchRetries")),

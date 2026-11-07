@@ -12,10 +12,16 @@ from gsuid_core.models import Event
 from gsuid_core.ai_core.trigger_bridge import ai_return
 
 from ..utils.card import render_note_card
-from ..utils.parse.note import NoteParseError, parse_note, enrich_author_profile
-from ..utils.parse.urls import extract_urls, is_short_link, extract_note_id
-from ..utils.parse.models import NoteResult
+from ..utils.parse.note import (
+    NoteParseError,
+    user_hint,
+    parse_first_valid,
+    should_report_failure,
+    apply_refreshed_cookie,
+)
+from ..utils.parse.urls import extract_urls, extract_note_urls
 from ..utils.parse.message import event_link_text
+from ..utils.parse.session import extract_web_session, read_activated_session
 from ..utils.media.pipeline import (
     PreparedMedia,
     cleanup_media,
@@ -25,7 +31,7 @@ from ..utils.media.pipeline import (
     build_media_message,
     select_media_for_delivery,
 )
-from ..xhs_config.xhs_config import XhsSettings, get_settings
+from ..xhs_config.xhs_config import get_settings
 
 sv = SV("小红书解析")
 
@@ -33,14 +39,40 @@ _processing_users: set[str] = set()
 _processing_lock = asyncio.Lock()
 _RN_COMMAND_RE = re.compile(r"^rn(?:\s|https?://|$)", re.IGNORECASE)
 
+_UNEXPECTED_HINT = "❌ 解析小红书链接时出错，请稍后重试，详情见 Core 日志。"
 
-def _sorted_urls(urls: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(
-        sorted(
-            urls,
-            key=lambda url: (0 if extract_note_id(url) else 1 if is_short_link(url) else 2),
-        )
-    )
+
+def _persist_cookie(cookie: str) -> None:
+    """把激活到的新 web_session 写回插件配置，立即生效并持久化。"""
+
+    from ..xhs_config.xhs_config import XHSAnalyseConfig
+
+    if XHSAnalyseConfig.set_config("cookie", cookie):
+        logger.info("[XHSAnalyse] 新的 web_session 已写回插件配置")
+    else:
+        logger.warning("[XHSAnalyse] web_session 写回插件配置失败")
+
+
+def _persist_refreshed_session(cookie: str, *, activated_before: str) -> str:
+    """把本次解析期间激活到的新会话写回配置，返回应继续使用的 Cookie。
+
+    两个条件：配置里本来就有 Cookies，且缓存里的会话**确实是本次解析期间**
+    产生的（与解析前记录的 ``activated_before`` 不同）。前者保证无 Cookies
+    模式激活到的游客会话只留在本地缓存，不会把用户显式留空的配置改成带
+    Cookies 模式；后者保证用户手工导入的新 Cookies 正常生效时，不会被缓存
+    里的旧激活值顶掉，也保证只有真正发生的续期才会改动配置。
+    """
+
+    if not cookie:
+        return cookie
+    current = read_activated_session()
+    if not current or current == activated_before:
+        return cookie
+    new_cookie = apply_refreshed_cookie(cookie)
+    if new_cookie is None:
+        return cookie
+    _persist_cookie(new_cookie)
+    return new_cookie
 
 
 async def _claim_processing(user_id: str) -> bool:
@@ -56,36 +88,6 @@ async def _release_processing(user_id: str) -> None:
         _processing_users.discard(user_id)
 
 
-async def _parse_first_valid(
-    client: httpx.AsyncClient,
-    urls: tuple[str, ...],
-    settings: XhsSettings,
-) -> NoteResult:
-    last_error: NoteParseError | None = None
-    for url in _sorted_urls(urls):
-        try:
-            if settings.output_logs:
-                logger.info(f"[XHSAnalyse] 开始解析链接：{url[:160]}")
-            result = await parse_note(
-                client,
-                url,
-                settings.cookie,
-                prefer_original_image=settings.prefer_original_image,
-                max_video_height=settings.target_video_height,
-                prefer_hdr_video=settings.prefer_hdr_video,
-                fallback_without_cookie=settings.fallback_without_cookie,
-            )
-            if settings.render_card:
-                result = await enrich_author_profile(client, result, cookie=settings.cookie)
-            return result
-        except NoteParseError as error:
-            last_error = error
-            if "无法提取笔记 ID" not in str(error) and "无法提取笔记数据" not in str(error):
-                raise
-            logger.warning(f"[XHSAnalyse] 跳过无效候选链接：{url[:120]}（{error}）")
-    raise last_error or NoteParseError("无法提取笔记 ID")
-
-
 async def _handle_urls(
     bot: Bot,
     ev: Event,
@@ -94,9 +96,14 @@ async def _handle_urls(
     notify: bool,
 ) -> bool:
     settings = get_settings()
+    cookie = settings.cookie
+    # 无 Cookies 模式同样要做会话保障：4K 档位依赖有效 web_session，而游客
+    # 会话不需要登录即可激活，所以这里不能因为 cookie 为空就跳过续期逻辑。
+    refresh_cookie = settings.auto_refresh_session
     if not await _claim_processing(ev.user_id):
+        # 自动解析路径保持静默：群里连发多条链接时逐条提示只会变成刷屏。
         if notify:
-            await bot.send("正在处理上一条小红书链接，请稍后重试")
+            await bot.send("⏳ 正在处理上一条小红书链接，请稍后重试。")
         return False
     processing_ids: list[str | int] | None = None
     media: tuple[PreparedMedia, ...] = ()
@@ -114,9 +121,28 @@ async def _handle_urls(
             proxy=settings.proxy or None,
             trust_env=False,
         ) as client:
-            result = await _parse_first_valid(client, urls, settings)
+            # 解析前的缓存快照：用来判断本次解析期间是否真的激活过新会话。
+            activated_before = read_activated_session()
+            result = await parse_first_valid(
+                client,
+                urls,
+                cookie,
+                prefer_original_image=settings.prefer_original_image,
+                max_video_height=settings.target_video_height,
+                prefer_hdr_video=settings.prefer_hdr_video,
+                fallback_without_cookie=settings.fallback_without_cookie,
+                enrich_profile=settings.render_card,
+                output_logs=settings.output_logs,
+                refresh_session=refresh_cookie,
+                proxy=settings.proxy,
+            )
+            if refresh_cookie:
+                cookie = _persist_refreshed_session(cookie, activated_before=activated_before)
             if settings.output_logs:
-                cookie_state = "已使用" if settings.cookie and not result.cookie_expired else "未使用"
+                # 判据是「本次真的带上了被承认的会话」，而不是「配置里有没有
+                # 内容」：Cookie 串可能只含 a1 等设备键，那种情况下解析其实是
+                # 匿名进行的。
+                cookie_state = "已使用" if extract_web_session(cookie) and not result.cookie_expired else "未使用"
                 logger.info(
                     f"[XHSAnalyse] 笔记解析成功：{result.note_id}，类型={result.type}，媒体数={len(result.media)}，"
                     f"Cookies={cookie_state}"
@@ -136,7 +162,7 @@ async def _handle_urls(
                     cover.path,
                     client,
                     render_scale=settings.render_scale,
-                    no_cookie_mode=not settings.cookie or result.cookie_expired,
+                    no_cookie_mode=not extract_web_session(cookie) or result.cookie_expired,
                 )
                 if card is None:
                     return False
@@ -175,8 +201,9 @@ async def _handle_urls(
             if settings.output_logs:
                 logger.info(f"[XHSAnalyse] 媒体准备完成：成功 {len(media)}/{len(result.media)} 个")
         if not media:
+            # 媒体全下失败通常是 CDN 或磁盘问题，自动路径静默，与失败发言策略一致。
             if notify:
-                await bot.send("未能下载任何媒体，请稍后重试")
+                await bot.send("❌ 笔记解析成功，但没能下载到任何媒体，请稍后重试。")
             return False
         info_text = build_info_text(result, media)
         author_stats = "；".join(
@@ -205,8 +232,12 @@ async def _handle_urls(
         return True
     except (NoteParseError, httpx.HTTPError, OSError, RuntimeError, ValueError) as error:
         logger.warning(f"[XHSAnalyse] 解析失败：{error}")
-        if notify:
-            await bot.send(str(error))
+        # 自动路径（notify=False）只报与链接本身有关的失败：非笔记链接、
+        # 本地磁盘/权限问题都在此静默，避免群里刷屏。
+        if should_report_failure(error, notify=notify):
+            # 非解析类异常（代理、编码等）的原文可能含凭据或服务器路径，
+            # 只写日志，群里给固定文案。
+            await bot.send(user_hint(error) if isinstance(error, NoteParseError) else _UNEXPECTED_HINT)
         return False
     finally:
         cleanup_media(
@@ -252,6 +283,8 @@ async def xhs_detect_links(bot: Bot, ev: Event) -> None:
     text = event_link_text(ev).strip()
     if not text or _RN_COMMAND_RE.match(text):
         return
-    urls = extract_urls(text)
+    # 主页、搜索页等非笔记链接在 xiaohongshu.com 之下同样能被正则匹配到，
+    # 自动路径必须先把它们滤掉，否则群里每贴一次主页链接就报一次错。
+    urls = extract_note_urls(text)
     if urls:
         await _handle_urls(bot, ev, urls, notify=False)

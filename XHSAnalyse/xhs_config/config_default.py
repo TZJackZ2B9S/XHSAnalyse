@@ -13,9 +13,20 @@ CONFIG_DEFAULT: dict[str, GSC] = {
         desc=(
             "小红书网页 Cookie。无 Cookies 时分享链接通常最高只能获取 720p；"
             "有 Cookies 也不保证达到目标画质，最终仍取决于原视频提供的清晰度。"
+            "Cookie 中起作用的是 web_session：失效时插件会尝试自动激活新会话，"
+            "若环境未安装 playwright，则需要重新登录小红书网页端复制完整 Cookie。"
         ),
         data="",
         secret=True,
+    ),
+    "autoRefreshSession": GsBoolConfig(
+        title="自动续期 web_session",
+        desc=(
+            "开启后每次解析前检测 Cookie 中的 web_session 是否有效，"
+            "失效时自动用无头浏览器重新激活（需要环境安装 playwright 与 Chromium），"
+            "并把新会话写回配置。关闭则只在失效时记日志提示。"
+        ),
+        data=True,
     ),
     "proxy": GsStrConfig(
         title="代理服务器地址",
