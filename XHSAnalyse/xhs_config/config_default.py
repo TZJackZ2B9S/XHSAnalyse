@@ -22,9 +22,10 @@ CONFIG_DEFAULT: dict[str, GSC] = {
     "autoRefreshSession": GsBoolConfig(
         title="自动续期 web_session",
         desc=(
-            "开启后每次解析前检测 Cookie 中的 web_session 是否有效，"
-            "失效时自动用无头浏览器重新激活（需要环境安装 playwright 与 Chromium），"
-            "并把新会话写回配置。关闭则只在失效时记日志提示。"
+            "开启后解析前检测 Cookie 中的 web_session 是否有效，失效时自动用无头浏览器"
+            "重新激活（需要环境安装 playwright 与 Chromium），并把新会话写回配置；"
+            "未配置 Cookie 时也会激活一个匿名会话，用于解锁高画质档位。"
+            "关闭后完全跳过检测与激活，视频通常只能取到 720p。"
         ),
         data=True,
     ),

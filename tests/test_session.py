@@ -50,6 +50,24 @@ def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient()
 
 
+def _read_cached_session_from(store) -> str:
+    original = session_mod._SESSION_STORE
+    session_mod._SESSION_STORE = store
+    try:
+        return session_mod._read_cached_session()
+    finally:
+        session_mod._SESSION_STORE = original
+
+
+def test_read_cached_session_ignores_non_object_json(tmp_path) -> None:
+    """缓存文件是合法 JSON 但不是对象时不能抛 AttributeError 冲出触发器。"""
+
+    store = tmp_path / "web_session.json"
+    for payload in ("null", "[]", '"abc"', "123"):
+        store.write_text(payload, encoding="utf-8")
+        assert _read_cached_session_from(store) == "", payload
+
+
 def test_extract_web_session() -> None:
     assert extract_web_session(COOKIE_WITH_SESSION) == "feedfacefeedfacefeedfacefeedfacefeedface"
     assert extract_web_session("a1=abc") == ""

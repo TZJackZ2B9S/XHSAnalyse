@@ -204,16 +204,16 @@ def test_auto_detection_filters_non_note_link_but_keeps_note_link_in_same_messag
 
 
 def test_automatic_path_stays_silent_for_non_note_failures() -> None:
-    """短链展开后落到主页/搜索页时不是笔记，自动路径不该在群里报错。"""
+    """主页/搜索页不是笔记；风控是出口 IP 级的，自动路径都不该在群里报错。"""
 
-    for code in (CODE_NOTE_ID, CODE_UNKNOWN):
+    for code in (CODE_NOTE_ID, CODE_UNKNOWN, CODE_CAPTCHA):
         assert not should_report_failure(NoteParseError("x", code), notify=False), code
 
 
 def test_automatic_path_reports_actionable_failures() -> None:
-    """需要登录、需要 Cookies、下架、风控都是真问题，自动路径也要给出反馈。"""
+    """需要登录、需要 Cookies、下架都是与这条链接有关的真问题，要给出反馈。"""
 
-    for code in (CODE_LOGIN, CODE_COOKIE, CODE_UNAVAILABLE, CODE_CAPTCHA):
+    for code in (CODE_LOGIN, CODE_COOKIE, CODE_UNAVAILABLE):
         assert should_report_failure(NoteParseError("x", code), notify=False), code
 
 

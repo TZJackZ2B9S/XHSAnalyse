@@ -216,6 +216,9 @@ def _read_cached_session() -> str:
     except json.JSONDecodeError as error:
         logger.warning(f"[XHSAnalyse] web_session 缓存文件损坏，忽略：{error}")
         return ""
+    if not isinstance(payload, dict):
+        logger.warning("[XHSAnalyse] web_session 缓存文件不是对象，忽略")
+        return ""
     raw = payload.get("web_session")
     return raw if isinstance(raw, str) else ""
 

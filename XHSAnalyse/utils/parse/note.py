@@ -204,9 +204,12 @@ def _is_automatic_failure_worth_reporting(code: str) -> bool:
 
     分享短链展开后可能落到主页、搜索页或活动页，这类链接本就不是笔记，
     自动路径应当静默跳过，否则群里每贴一次就会收到一条错误提示。
+
+    风控（``CODE_CAPTCHA``）是出口 IP 级的问题，一旦命中，群里每条带链接的
+    消息都会得到同一条提示，因此自动路径保持静默；显式命令仍然照常提示。
     """
 
-    return code not in {CODE_NOTE_ID, CODE_UNKNOWN}
+    return code not in {CODE_NOTE_ID, CODE_UNKNOWN, CODE_CAPTCHA}
 
 
 def should_report_failure(error: BaseException, *, notify: bool) -> bool:
