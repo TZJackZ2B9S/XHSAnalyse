@@ -187,6 +187,9 @@ _last_activate_at: float = 0.0
 _last_anonymous_activate_at: float = 0.0
 
 _ACTIVATION_TIMEOUT = 45.0
+# 取 cookie 的轮询间隔：sec SDK 一般在首帧后 1s 内完成激活，1s 一跳最坏会
+# 白等近 1s，250ms 足够密且开销可忽略。
+_COOKIE_POLL_MS = 250
 
 
 def extract_web_session(cookie: str) -> str:
@@ -221,6 +224,27 @@ def _read_cached_session() -> str:
         return ""
     raw = payload.get("web_session")
     return raw if isinstance(raw, str) else ""
+
+
+def _cached_session_saved_at() -> float:
+    """缓存文件里的写入时间戳；读不到或字段不合法时返回 0。
+
+    进程内的 :data:`_last_anonymous_activate_at` 在重启后归零，只靠它会让
+    每次重启后的第一条链接都重新拉一次浏览器；磁盘上的 ``saved_at`` 才是
+    跨进程可用的复用依据。
+    """
+
+    if not _SESSION_STORE.exists():
+        return 0.0
+    try:
+        payload = json.loads(_SESSION_STORE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        logger.warning(f"[XHSAnalyse] web_session 缓存文件损坏，忽略：{error}")
+        return 0.0
+    if not isinstance(payload, dict):
+        return 0.0
+    saved_at = payload.get("saved_at")
+    return saved_at if isinstance(saved_at, (int, float)) else 0.0
 
 
 def _write_cached_session(session: str) -> None:
@@ -428,9 +452,13 @@ async def _run_activation(proxy: str) -> str:
             await context.add_init_script("Object.defineProperty(navigator,'webdriver',{get:()=>undefined})")
             page = await context.new_page()
             await page.route("**/*", _route_media)
+            # ``commit`` 在响应头到达时就返回，不等 DOM 就绪：激活只需要页面
+            # 的 sec SDK 跑起来，而会话是从 context 的 cookie jar 里取的，不
+            # 依赖 DOM。实测首页 domcontentloaded 要 1.9s、commit 只要 0.4s，
+            # 整次激活从 5.5s 降到 2.9s，轮询仍会等 SDK 把 web_session 写进去。
             await page.goto(
                 HOME_URL,
-                wait_until="domcontentloaded",
+                wait_until="commit",
                 timeout=int(_ACTIVATION_TIMEOUT * 1000),
             )
             session = ""
@@ -441,7 +469,7 @@ async def _run_activation(proxy: str) -> str:
                         session = cookie["value"]
                 if session:
                     break
-                await page.wait_for_timeout(1000)
+                await page.wait_for_timeout(_COOKIE_POLL_MS)
             return session
         finally:
             await browser.close()
@@ -517,11 +545,12 @@ async def _ensure_anonymous_session(
 
     global _last_anonymous_activate_at
     cached = _read_cached_session()
-    now = time.monotonic()
-    within_window = now - _last_anonymous_activate_at < _NO_COOKIE_ACTIVATE_INTERVAL
-    if cached and _last_anonymous_activate_at > 0.0 and within_window:
+    age = time.time() - _cached_session_saved_at() if cached else float("inf")
+    if cached and age < _NO_COOKIE_ACTIVATE_INTERVAL:
         # 缓存会话在复用窗口内：直接使用，不做网络检测（游客会话本来就是
         # 激活即用的，失效表现只是档位降级，不值得为它多打一次首页）。
+        # 判据用磁盘上的 ``saved_at`` 而不是进程内时间戳，否则每次重启后的
+        # 第一条链接都要白等一次浏览器启动。
         return replace_web_session(cookie, cached), False
     session = await activate_web_session(proxy, output_logs=output_logs)
     if not session:
